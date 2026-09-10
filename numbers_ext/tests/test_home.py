@@ -20,7 +20,7 @@ def test_require_refuses_unmarked_home(tmp_path, monkeypatch):
 
 
 def test_require_refuses_hermes_looking_home(tmp_path, monkeypatch):
-    hermes = tmp_path / "hermes"  # e.g. a default Hermes home path
+    hermes = tmp_path / "hermes"  # e.g. a default Numbers home path
     hermes.mkdir()
     monkeypatch.setenv("NUMBERS_HOME", str(hermes))
     with pytest.raises(home.NotANumbersHome):

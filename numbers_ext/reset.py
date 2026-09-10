@@ -1,7 +1,7 @@
 """Factory reset for the NUMBERS isolated home.
 
 Deletes: conversation/session rows + VACUUM (sqlite3 fallback here; the repo's
-`hermes sessions` machinery covers FTS-segment merging after restart),
+`numbers sessions` machinery covers FTS-segment merging after restart),
 memories/*.md, non-manifest skills, and regenerable caches/dumps.
 Keeps:   config.yaml, .env (incl. NUMBERS_AGENT_TOKEN), agent-token,
          manifest skills (+ always use-angel), cron/, plugins/, skins/,
@@ -9,7 +9,7 @@ Keeps:   config.yaml, .env (incl. NUMBERS_AGENT_TOKEN), agent-token,
 
 The skills manifest is written by the installer at install time
 (skills-manifest.json). If it is missing, skills are NOT pruned (fail closed).
-The home marker (numbers-home.json) is required: a Hermes home is never reset.
+The home marker (numbers-home.json) is required: a Numbers home is never reset.
 """
 from __future__ import annotations
 
@@ -112,7 +112,7 @@ def run_reset(print_fn: Callable = print) -> bool:
     print_fn("  - skills not in the install manifest (stock skills and "
              "'use angel' stay)")
     print_fn("  - caches, terminal dumps and sandbox content")
-    print_fn("Kept: your provider setup (Gemma), the Angel connection, and config.")
+    print_fn("Kept: your provider setup, the Angel connection, and config.")
     word = input('Type RESET to confirm, anything else to cancel: ').strip()
     if word != "RESET":
         print_fn("[yellow]Cancelled.[/]")

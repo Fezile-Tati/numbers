@@ -10,7 +10,7 @@ from hermes_cli import skin_engine
 
 
 class _FakeSkin:
-    def __init__(self, name="Hermes Agent", ver=""):
+    def __init__(self, name="Numbers", ver=""):
         self._b = {"agent_name": name, "agent_version": ver}
 
     def get_branding(self, key, default=None):
@@ -28,7 +28,7 @@ def test_label_uses_skin_agent_version(monkeypatch):
 def test_label_falls_back_to_upstream(monkeypatch):
     monkeypatch.setattr(skin_engine, "get_active_skin", lambda: None)
     label = banner.format_banner_version_label()
-    assert label.startswith("Hermes Agent v")
+    assert label.startswith("Numbers v")
 
 
 def test_label_default_skin_no_agent_version(monkeypatch):

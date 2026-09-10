@@ -14,7 +14,7 @@ def _seed_home(tmp_path: Path) -> Path:
     (tmp_path / "memories" / "MEMORY.md").write_text("remember this")
     (tmp_path / "cache").mkdir()
     (tmp_path / "cache" / "x").write_text("y")
-    (tmp_path / "config.yaml").write_text("model:\n  default: gemma\n")
+    (tmp_path / "config.yaml").write_text("model:\n  provider: auto\n")
     (tmp_path / ".env").write_text("NUMBERS_AGENT_TOKEN=keep\nOTHER=1\n")
     (tmp_path / "agent-token").write_text("keep-token\n")
     db = sqlite3.connect(tmp_path / "state.db")

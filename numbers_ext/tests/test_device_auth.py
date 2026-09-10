@@ -103,3 +103,23 @@ def test_exchange_failure_no_write(hub, marked_home, monkeypatch):
     with pytest.raises(da.AuthError):
         da._exchange(hub, "req-1", "CODE")
     assert not (marked_home / "agent-token").exists()
+
+
+def test_sign_in_unreachable_hub_prints_not_raises(marked_home, monkeypatch):
+    """Connection failure must surface as a printed message, not a swallowed
+    exception (the "/sign-in does nothing" bug)."""
+    monkeypatch.setattr(da, "_prompt_impl", lambda _text: "CODE1234")
+    out = []
+    # Port 1 is not listening → ConnectionRefusedError inside urlopen.
+    result = da.run_sign_in(print_fn=lambda *a, **k: out.append(" ".join(map(str, a))),
+                            hub_base="http://127.0.0.1:1", open_browser=False)
+    assert result is None
+    assert any("Could not reach Intersession" in line for line in out)
+    assert not (marked_home / "agent-token").exists()
+
+
+def test_ssl_ctx_relaxes_only_for_loopback():
+    loop = da._ssl_ctx("https://127.0.0.1:3000")
+    assert loop.verify_mode == da.ssl.CERT_NONE and loop.check_hostname is False
+    remote = da._ssl_ctx("https://hub.example.com")
+    assert remote.verify_mode == da.ssl.CERT_REQUIRED and remote.check_hostname is True

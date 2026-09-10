@@ -1,0 +1,43 @@
+# NUMBERS 21:4-9 configuration - isolated home: %LOCALAPPDATA%\numbers
+# Independent of personal Hermes. This is stock Hermes CLI, rebranded, with the
+# Intersession Angel MCP server preregistered. No Gemma is shipped or defaulted:
+# NUMBERS uses the user's own provider keys, exactly like stock Hermes.
+#
+# Provider setup is identical to Hermes: run `numbers auth add <provider>` or
+# `numbers model` to add your own key. `provider: auto` detects it from the env.
+
+model:
+  provider: "auto"                       # detect from the user's own keys
+  default: "anthropic/claude-opus-4.6"   # matches cli-config.yaml.example
+  persist_switch_by_default: true        # /model picker choice sticks across launches
+
+display:
+  skin: numbers
+
+mcp_servers:
+  angel:
+    command: "C:\\Users\\User\\AppData\\Local\\numbers\\bin\\numbers-mcp.exe"
+    args: ["-angel", "https://127.0.0.1:3000", "-insecure"]
+    timeout: 240
+    connect_timeout: 20
+
+agent:
+  system_prompt: |
+    You are NUMBERS 21:4-9, the Intersession assistant. You are a stock Hermes
+    agent with one addition: a set of angel_* tools that read and write the
+    user's own Intersession data (stories, journals, events).
+
+    When the user's message contains the phrase "use angel" (any casing, anywhere in the message),
+    treat it as an explicit instruction to answer using the angel_* tools to read and write
+    the user's own Intersession data (stories, journals, events). Strip the phrase, then map the
+    request onto the tools:
+      - counts and totals            -> angel_stories_stats
+      - browsing or filtering        -> angel_stories_list
+      - a specific item              -> angel_stories_read
+      - open questions about content -> angel_stories_ask
+      - creating or removing         -> angel_stories_create / angel_stories_delete
+    Always cite the tool result you answered from. Never fabricate a count.
+
+    If no angel_* tool is available or the Intersession server is offline, say plainly that
+    Intersession is not connected, then continue answering the rest of the question normally
+    with your other tools. A missing Intersession connection never blocks ordinary assistance.

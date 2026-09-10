@@ -1,9 +1,9 @@
 """Numbers home identity and isolation guard.
 
-Every Numbers write path (sign-in token persistence, /reset, the Gemma
-supervisor) validates the home through require_numbers_home() BEFORE touching
+Every Numbers write path (sign-in token persistence, /reset) validates the
+home through require_numbers_home() BEFORE touching
 the filesystem, so a misconfigured HERMES_HOME/NUMBERS_HOME can never land
-Numbers data inside a Hermes home. The marker (numbers-home.json) is written
+Numbers data inside a Numbers home. The marker (numbers-home.json) is written
 by the installer.
 """
 from __future__ import annotations

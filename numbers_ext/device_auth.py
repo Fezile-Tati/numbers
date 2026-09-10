@@ -21,6 +21,7 @@ import socket
 import ssl
 import tempfile
 import urllib.error
+import urllib.parse
 import urllib.request
 import webbrowser
 from pathlib import Path
@@ -36,8 +37,24 @@ class AuthError(RuntimeError):
     """Raised for any non-2xx from the Cloud-HUB."""
 
 
-def _ssl_ctx() -> ssl.SSLContext:
-    if os.environ.get("NUMBERS_INSECURE") == "1":  # dev only (self-signed certs)
+# Hosts where TLS verification is relaxed automatically: a loopback endpoint has
+# no interceptable network hop, so a self-signed dev cert is not a downgrade. This
+# mirrors hermes_cli.model_switch._LOOPBACK_HOSTS. Remote hubs stay fully verified
+# unless the operator explicitly opts out with NUMBERS_INSECURE=1.
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "0.0.0.0"})
+
+
+def _is_loopback(url: str) -> bool:
+    try:
+        host = (urllib.parse.urlparse(url).hostname or "").strip().lower()
+    except Exception:
+        return False
+    return host in _LOOPBACK_HOSTS
+
+
+def _ssl_ctx(url: str = "") -> ssl.SSLContext:
+    # Explicit opt-out, or an implicit loopback dev endpoint (self-signed cert).
+    if os.environ.get("NUMBERS_INSECURE") == "1" or _is_loopback(url):
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
         ctx.verify_mode = ssl.CERT_NONE
@@ -53,7 +70,7 @@ def _post(url: str, body: dict, token: Optional[str] = None, timeout: int = 30) 
     if token:
         req.add_header("Authorization", "Bearer " + token)
     try:
-        with urllib.request.urlopen(req, timeout=timeout, context=_ssl_ctx()) as resp:
+        with urllib.request.urlopen(req, timeout=timeout, context=_ssl_ctx(url)) as resp:
             raw = resp.read() or b"{}"
             return json.loads(raw)
     except urllib.error.HTTPError as e:
@@ -63,6 +80,18 @@ def _post(url: str, body: dict, token: Optional[str] = None, timeout: int = 30) 
         except Exception:
             detail = e.reason
         raise AuthError(f"Cloud-HUB returned HTTP {e.code}: {detail}") from e
+    # A connection-level failure (server down, refused, DNS, TLS, timeout) is NOT
+    # an HTTPError, so without this it would escape run_sign_in's `except AuthError`
+    # and vanish upstream — the "/sign-in does nothing" bug. Convert to AuthError
+    # with an actionable hint so the flow prints instead of silently aborting.
+    except (urllib.error.URLError, ssl.SSLError, socket.timeout, OSError) as e:
+        reason = getattr(e, "reason", None) or e
+        hint = ""
+        if isinstance(reason, ssl.SSLError) or isinstance(e, ssl.SSLError):
+            hint = " (TLS error — for a self-signed dev cert set NUMBERS_INSECURE=1)"
+        raise AuthError(
+            f"Could not reach Intersession at {url}: {reason}. "
+            f"Is the app running?{hint}") from e
 
 
 def _prompt_impl(text: str) -> str:  # replaced in tests
@@ -189,3 +218,31 @@ def run_logout(print_fn: Callable = print, hub_base: Optional[str] = None,
     _clear()
     os.environ.pop("NUMBERS_AGENT_TOKEN", None)
     print_fn("[bold green]Signed out.[/] Angel tools are disabled on this device.")
+
+
+def main(argv: Optional[list] = None) -> int:
+    """`python -m numbers_ext.device_auth signin|logout` — the CLI sign-in entry.
+
+    The `numbers` launcher maps `numbers signin` / `numbers logout` here so a
+    user never types the module path.
+    """
+    import argparse
+
+    ap = argparse.ArgumentParser(prog="numbers auth",
+                                 description="Sign in to enable the Angel MCP tools")
+    ap.add_argument("action", choices=["signin", "sign-in", "login", "logout"])
+    args = ap.parse_args(argv)
+    try:
+        home.require_numbers_home()
+        if args.action == "logout":
+            run_logout()
+            return 0
+        return 0 if run_sign_in() else 1
+    except home.NotANumbersHome as e:
+        print(f"[numbers] {e}", file=__import__("sys").stderr)
+        return 3
+
+
+if __name__ == "__main__":
+    import sys
+    sys.exit(main())
