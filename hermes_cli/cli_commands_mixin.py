@@ -4159,6 +4159,47 @@ class CLICommandsMixin:
             _cprint(f"Unknown wake subcommand: {subcommand}")
             _cprint("Usage: /wake [on|off|status]")
 
+    # --- NUMBERS 21:4-9 fork handlers (numbers_ext; see hermes-patches.md P3)
+
+    def _handle_sign_in_command(self, command: str) -> None:
+        """Handle /sign-in -- Cloud-HUB device-code sign-in for the Angel MCP."""
+        from cli import _cprint
+        from numbers_ext.device_auth import run_sign_in
+
+        run_sign_in(print_fn=_cprint, prompt_fn=self._numbers_prompt)
+
+    def _handle_logout_command(self, command: str) -> None:
+        """Handle /logout -- revoke and clear the Angel token."""
+        from cli import _cprint
+        from numbers_ext.device_auth import run_logout
+
+        run_logout(print_fn=_cprint)
+
+    def _handle_reset_command(self, command: str) -> None:
+        """Handle /reset -- factory reset (conversations, memory, skills)."""
+        from cli import _cprint
+        from numbers_ext.reset import run_reset
+
+        if run_reset(print_fn=_cprint):
+            _cprint("[bold green]NUMBERS has been reset. Restarting...[/]")
+            self._numbers_exit_after_reset()
+
+    def _numbers_prompt(self, text: str) -> str:
+        """Read one line from the user without breaking the TUI."""
+        try:
+            import prompt_toolkit.shortcuts as _p
+
+            return _p.prompt(text) or ""
+        except Exception:
+            return input(text) or ""
+
+    def _numbers_exit_after_reset(self) -> None:
+        """Clean process exit after a reset (mirrors the /update relaunch path)."""
+        import os
+
+        os._exit(0)  # noqa: PLR1722 -- immediate, post-VACUUM; nothing to flush
+
+
     def _persist_wake_word_enabled(self, enabled: bool):
         """Save ``wake_word.enabled`` so the /wake toggle sticks for future sessions."""
         from cli import _cprint, _DIM, _RST, save_config_value

@@ -411,6 +411,17 @@ COMMAND_REGISTRY: list[CommandDef] = [
     CommandDef("debug", "Upload debug report (system info + logs) and get shareable links", "Info",
                args_hint="[nous|local]"),
 
+    # --- NUMBERS 21:4-9 fork additions (logged: hermes-patches.md P3) ------
+    # NOTE: this "reset" entry shadows the "reset" ALIAS of /new above by
+    # design -- /new's alias was registered earlier and _COMMAND_LOOKUP is
+    # last-writer-wins. Product intent: /reset = factory reset, not /new.
+    CommandDef("sign-in", "Connect NUMBERS to your Intersession account (device code flow)", "Auth",
+               cli_only=True, desktop="terminal"),
+    CommandDef("logout", "Disconnect from Intersession and revoke this device's access", "Auth",
+               cli_only=True, desktop="terminal"),
+    CommandDef("reset", "Factory reset: erase conversations, memory and non-default skills (NUMBERS setup stays)", "Session",
+               cli_only=True, desktop="terminal"),
+
     # Exit
     CommandDef("quit", "Exit the CLI (use --delete to also remove session history)", "Exit",
                cli_only=True, aliases=("exit",), args_hint="[--delete]",

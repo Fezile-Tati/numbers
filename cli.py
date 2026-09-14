@@ -13124,6 +13124,13 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             self._handle_voice_command(cmd_original)
         elif canonical == "wake":
             self._handle_wake_command(cmd_original)
+        elif canonical == "sign-in":
+            self._handle_sign_in_command(cmd_original)
+        elif canonical == "logout":
+            self._handle_logout_command(cmd_original)
+        elif canonical == "reset":
+            self._handle_reset_command(cmd_original)
+
         elif canonical == "busy":
             self._handle_busy_command(cmd_original)
         elif canonical == "indicator":
