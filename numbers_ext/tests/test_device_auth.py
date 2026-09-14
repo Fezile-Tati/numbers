@@ -203,3 +203,48 @@ def test_persist_agent_token_rejects_an_empty_value(tmp_path, monkeypatch):
 
     assert da.persist_agent_token("   ") == 1
     assert not (tmp_path / "agent-token").exists()
+
+
+# --- Audit rows A4 / A3 (Docs/App/Hermes-Angle/AUTH_AUDIT.md) ---------------
+
+def test_a4_ssl_ctx_never_relaxes_verification_for_a_remote_hub(monkeypatch):
+    """A4: TLS verification is relaxed for loopback (dev cert) or an explicit
+    opt-out only - never because the hub is merely remote."""
+    import ssl
+
+    monkeypatch.delenv("NUMBERS_INSECURE", raising=False)
+
+    remote = da._ssl_ctx("https://hub.example.com/api")
+    assert remote.verify_mode == ssl.CERT_REQUIRED
+    assert remote.check_hostname is True
+
+    loopback = da._ssl_ctx("https://127.0.0.1:3000/api")
+    assert loopback.verify_mode == ssl.CERT_NONE
+    assert loopback.check_hostname is False
+
+    monkeypatch.setenv("NUMBERS_INSECURE", "1")
+    forced = da._ssl_ctx("https://hub.example.com/api")
+    assert forced.verify_mode == ssl.CERT_NONE
+
+
+def test_a3_import_hermes_readers_never_write_the_personal_home(tmp_path):
+    """A3: `numbers import-hermes` may read the operator's Hermes home (that is
+    the command's purpose) but must leave it byte-identical."""
+    from numbers_ext import import_hermes
+
+    personal = tmp_path / ".hermes"
+    personal.mkdir()
+    (personal / "auth.json").write_text(
+        '{"providers": {"openai": {"api_key": "sk-test"}}}', encoding="utf-8"
+    )
+    (personal / "config.yaml").write_text(
+        "model:\n  provider: auto\n  default: anthropic/claude-opus-4.6\n", encoding="utf-8"
+    )
+    before = {p.name: p.read_bytes() for p in personal.iterdir() if p.is_file()}
+
+    providers = import_hermes.read_hermes_providers(personal)
+    model = import_hermes.read_hermes_model(personal)
+
+    after = {p.name: p.read_bytes() for p in personal.iterdir() if p.is_file()}
+    assert after == before, "the personal Hermes home must never be modified by the import"
+    assert isinstance(providers, dict) and isinstance(model, dict)
