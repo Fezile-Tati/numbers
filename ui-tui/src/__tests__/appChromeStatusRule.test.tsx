@@ -95,7 +95,7 @@ const baseProps = {
   cwdLabel: '~/repo',
   liveSessionCount: 0,
   model: 'opus-4.8',
-  sessionStartedAt: null,
+  lastTurnDurationMs: null,
   status: 'ready',
   statusColor: DEFAULT_THEME.color.ok,
   t: DEFAULT_THEME,
@@ -214,8 +214,8 @@ describe('StatusRule session count click target', () => {
       cwdLabel: '~/repo',
       liveSessionCount: 1,
       model: 'kimi-k2.6',
+      lastTurnDurationMs: null,
       onSessionCountClick: openSwitcher,
-      sessionStartedAt: null,
       status: 'ready',
       statusColor: DEFAULT_THEME.color.ok,
       t: DEFAULT_THEME,
@@ -240,7 +240,6 @@ describe('StatusRule session count click target', () => {
       liveSessionCount: 3,
       model: 'opus-4.8',
       onSessionCountClick: vi.fn(),
-      sessionStartedAt: Date.now() - 60_000,
       status: 'ready',
       statusColor: DEFAULT_THEME.color.ok,
       t: DEFAULT_THEME,
@@ -423,10 +422,10 @@ describe('StatusRule battery indicator', () => {
   })
 })
 
-describe('StatusRule idle-since read-out', () => {
-  // The IdleSince component uses hooks, so it can't be invoked outside a
-  // renderer — assert on the element tree instead (same reason the duration
-  // tests don't check SessionDuration's text).
+describe('StatusRule last-task duration read-out', () => {
+  // LastTurnDuration is a plain function component, but StatusRule is invoked
+  // as a plain function here, so the element tree is the only thing to assert
+  // on (same reason the other tests read `textContent`).
   const findComponentByName = (node: ReactNodeLike, name: string): React.ReactElement | null => {
     if (node === null || node === undefined || typeof node === 'boolean') {
       return null
@@ -455,40 +454,61 @@ describe('StatusRule idle-since read-out', () => {
     return findComponentByName(node.props.children, name)
   }
 
-  it('shows time since the last final agent response when idle', () => {
-    const endedAt = Date.now() - 42_000
+  it('shows how long the last task took, as a frozen number', () => {
+    const element = StatusRule({ ...baseProps, lastTurnDurationMs: 42_000 })
 
-    const element = StatusRule({
-      ...baseProps,
-      lastTurnEndedAt: endedAt,
-      sessionStartedAt: Date.now() - 60_000
-    })
+    const leaf = findComponentByName(element, 'LastTurnDuration')
+    expect(leaf).not.toBeNull()
+    // A frozen duration, not a timestamp to tick from: the segment must not
+    // grow while the user is idle (that was the reported bug).
+    expect(leaf!.props.ms).toBe(42_000)
+    // The component is hook-free by construction (that is the point of the
+    // frozen read-out), so invoking it directly reads the text it renders.
+    const render = leaf!.type as (props: { ms: number }) => ReactNodeLike
 
-    const idle = findComponentByName(element, 'IdleSince')
-
-    expect(idle).not.toBeNull()
-    expect(idle!.props.endedAt).toBe(endedAt)
+    expect(textContent(render(leaf!.props))).toBe('✓ 42s')
   })
 
   it('is hidden while a turn is busy', () => {
     const element = StatusRule({
       ...baseProps,
       busy: true,
-      lastTurnEndedAt: Date.now() - 42_000,
+      lastTurnDurationMs: 42_000,
       turnStartedAt: Date.now()
     })
 
-    expect(findComponentByName(element, 'IdleSince')).toBeNull()
+    expect(findComponentByName(element, 'LastTurnDuration')).toBeNull()
   })
 
   it('is hidden before the first turn completes', () => {
+    expect(findComponentByName(StatusRule({ ...baseProps }), 'LastTurnDuration')).toBeNull()
+  })
+
+  it('no longer renders a session-age or idle-since clock', () => {
+    // Both counted up regardless of activity; both are gone. The retired props
+    // are still passed in (asserted through the type, since they are no longer
+    // on the props type) so a resurrected ticker that reads them fails here.
     const element = StatusRule({
       ...baseProps,
-      lastTurnEndedAt: null,
-      sessionStartedAt: Date.now() - 60_000
+      lastTurnDurationMs: 1_000,
+      lastTurnEndedAt: Date.now() - 600_000,
+      sessionStartedAt: Date.now() - 600_000
+    } as React.ComponentProps<typeof StatusRule>)
+
+    expect(findComponentByName(element, 'SessionDuration')).toBeNull()
+    expect(findComponentByName(element, 'IdleSince')).toBeNull()
+    // …and the frozen read-out is what replaced them.
+    expect(findComponentByName(element, 'LastTurnDuration')).not.toBeNull()
+  })
+
+  it('honors the display.status_bar.fields duration filter', () => {
+    const element = StatusRule({
+      ...baseProps,
+      lastTurnDurationMs: 42_000,
+      statusBarFields: new Set(['model', 'context_pct'])
     })
 
-    expect(findComponentByName(element, 'IdleSince')).toBeNull()
+    expect(findComponentByName(element, 'LastTurnDuration')).toBeNull()
   })
 })
 

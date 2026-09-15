@@ -204,6 +204,10 @@ export function useMainApp(gw: GatewayClient) {
   const [dashboardFreshSessionId, setDashboardFreshSessionId] = useState<null | string>(null)
   const [turnStartedAt, setTurnStartedAt] = useState<null | number>(null)
   const [lastTurnEndedAt, setLastTurnEndedAt] = useState<null | number>(null)
+  // How long the LAST completed turn took. Frozen at the turn boundary on
+  // purpose: a live clock in the status rule kept counting while the user
+  // was idle, which reads as "still working" when nothing is running.
+  const [lastTurnDurationMs, setLastTurnDurationMs] = useState<null | number>(null)
   // Bumped by the gateway `reaction` event (core-detected affection).
   const goodVibesTick = useStore($goodVibesTick)
   const [bellOnComplete, setBellOnComplete] = useState(false)
@@ -574,7 +578,10 @@ export function useMainApp(gw: GatewayClient) {
       // Only stamp the idle marker when a turn was actually live — busy is
       // also false on mount and we don't want a phantom "done" timestamp
       // before the first turn has completed.
-      setLastTurnEndedAt(Date.now())
+      const endedAt = Date.now()
+
+      setLastTurnDurationMs(endedAt - turnStartedAt)
+      setLastTurnEndedAt(endedAt)
       setTurnStartedAt(null)
     }
   }, [ui.busy, turnStartedAt])
@@ -1251,6 +1258,7 @@ export function useMainApp(gw: GatewayClient) {
       cwdLabel: fmtProjectCwdBranch(cwd, gitBranch, ui.info?.project?.name, 28),
       goodVibesTick,
       lastTurnEndedAt: ui.sid ? lastTurnEndedAt : null,
+      lastTurnDurationMs: ui.sid ? lastTurnDurationMs : null,
       sessionStartedAt: ui.sid ? sessionStartedAt : null,
       sessionTitle: ui.sid ? ui.sessionTitle : '',
       showStickyPrompt: !!stickyPrompt,
@@ -1270,6 +1278,7 @@ export function useMainApp(gw: GatewayClient) {
       gitBranch,
       goodVibesTick,
       lastTurnEndedAt,
+      lastTurnDurationMs,
       sessionStartedAt,
       stickyPrompt,
       turnStartedAt,

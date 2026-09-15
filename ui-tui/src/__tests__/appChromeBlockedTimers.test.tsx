@@ -28,8 +28,14 @@ const mounted: Array<() => void> = []
  * Mount a real StatusRule through Ink so the leaf components' effects — and
  * therefore their `setInterval` calls — actually run.  The existing
  * appChromeStatusRule tests invoke `StatusRule(...)` as a plain function,
- * which only builds the element tree and never mounts FaceTicker /
- * SessionDuration / IdleSince, so it cannot observe timer behaviour.
+ * which only builds the element tree and never mounts FaceTicker, so it
+ * cannot observe timer behaviour.
+ *
+ * The only live clock left in the rule is the FaceTicker's mid-turn elapsed
+ * read-out: `LastTurnDuration` is a frozen number, and an idle rule shows it
+ * without arming anything.  The occlusion gate is therefore exercised through
+ * BUSY props — one 1-second clock while the rule is visible, none while an
+ * overlay actually covers it.
  *
  * Teardown is registered up front so a failing assertion still unmounts the
  * tree — a leaked instance would keep re-arming timers into the next test.
@@ -81,10 +87,9 @@ const idleProps: StatusRuleProps = {
   busy: false,
   cols: 120,
   cwdLabel: '~/repo',
-  lastTurnEndedAt: T0 - 5_000,
+  lastTurnDurationMs: 300_000,
   liveSessionCount: 0,
   model: 'opus-4.8',
-  sessionStartedAt: T0 - 60_000,
   status: 'ready',
   statusColor: DEFAULT_THEME.color.ok,
   t: DEFAULT_THEME,
@@ -94,12 +99,11 @@ const idleProps: StatusRuleProps = {
 }
 
 // Busy swaps the idle read-out for the FaceTicker, which owns the glyph +
-// verb + elapsed-clock trio.
+// verb + elapsed-clock trio — the only live clock left in the rule.
 const busyProps: StatusRuleProps = {
   ...idleProps,
   busy: true,
   indicatorStyle: 'kaomoji',
-  lastTurnEndedAt: null,
   turnStartedAt: T0 - 30_000
 }
 
@@ -111,6 +115,10 @@ const oneSecondTimers = (spy: IntervalSpy) => armedDelays(spy).filter(delay => d
 /** The handlers of every 1s clock armed so far — `() => setNow(Date.now())`. */
 const oneSecondTicks = (spy: IntervalSpy) =>
   spy.mock.calls.filter(call => call[1] === 1000).map(call => call[0] as () => void)
+
+/** Every `✓ <duration>` read-out the mounted frames have carried so far. */
+const durationReadouts = (output: string) =>
+  [...output.matchAll(/✓ ([\dhm ]+s)/g)].map(match => match[1].trim())
 
 // ── AppLayout harness ────────────────────────────────────────────────
 //
@@ -163,8 +171,7 @@ const layoutProps: AppLayoutProps = {
   status: {
     cwdLabel: '~/repo',
     goodVibesTick: 0,
-    lastTurnEndedAt: T0 - 5_000,
-    sessionStartedAt: T0 - 60_000,
+    lastTurnDurationMs: 300_000,
     sessionTitle: '',
     showStickyPrompt: false,
     statusColor: DEFAULT_THEME.color.ok,
@@ -187,14 +194,25 @@ const layoutProps: AppLayoutProps = {
   }
 }
 
+// Same layout mid-turn: the FaceTicker owns the live elapsed clock, so a busy
+// rule is what the occlusion gate below can be measured against.
+const busyLayoutProps: AppLayoutProps = {
+  ...layoutProps,
+  status: { ...layoutProps.status, turnStartedAt: T0 - 30_000 }
+}
+
 /** Mount the real AppLayout with the given overlay + ui state applied first. */
-const mountLayout = (overlay: Partial<OverlayState> = {}, ui: Partial<UiState> = {}) => {
+const mountLayout = (
+  overlay: Partial<OverlayState> = {},
+  ui: Partial<UiState> = {},
+  props: AppLayoutProps = layoutProps
+) => {
   patchUiState({ sessionTitle: 'test', sid: 'sid-1', status: 'ready', ...ui })
   patchOverlayState(overlay)
 
   return mountTree(
     <GatewayProvider value={gatewayStub}>
-      <AppLayout {...layoutProps} />
+      <AppLayout {...props} />
     </GatewayProvider>,
     { interactive: true }
   )
@@ -226,16 +244,25 @@ afterEach(() => {
 })
 
 describe('status-chrome timers under an occluding overlay', () => {
-  it('arms the one-second SessionDuration + IdleSince clocks when nothing covers the rule', () => {
+  it('arms nothing for an idle rule — the last-task read-out is frozen', () => {
     mount(idleProps)
 
-    expect(oneSecondTimers(intervalSpy)).toBe(2)
+    // The two always-counting clocks (SessionDuration / IdleSince) are gone,
+    // so an idle rule has no live timer left to pause or resume.
+    expect(armedDelays(intervalSpy)).toHaveLength(0)
+    expect(oneSecondTimers(intervalSpy)).toBe(0)
+  })
+
+  it('arms the one-second mid-turn elapsed clock when nothing covers the rule', () => {
+    mount(busyProps)
+
+    expect(oneSecondTimers(intervalSpy)).toBe(1)
   })
 
   it('arms no timer at all when an occluding overlay is already open', () => {
     patchOverlayState({ modelPicker: true })
 
-    mount(idleProps)
+    mount(busyProps)
 
     expect(oneSecondTimers(intervalSpy)).toBe(0)
   })
@@ -245,7 +272,7 @@ describe('status-chrome timers under an occluding overlay', () => {
 
     // kaomoji cadence for the glyph + verb rotation, plus the elapsed clock.
     expect(armedDelays(intervalSpy)).toContain(2500)
-    expect(oneSecondTimers(intervalSpy)).toBeGreaterThan(0)
+    expect(oneSecondTimers(intervalSpy)).toBe(1)
   })
 
   it('freezes the FaceTicker verb on compacting and skips verb rotation (#97239)', () => {
@@ -277,55 +304,83 @@ describe('status-chrome timers under an occluding overlay', () => {
     expect(oneSecondTimers(intervalSpy)).toBeGreaterThan(0)
   })
 
-  it('keeps the clocks running when a floating overlay cannot reach a bottom status rule', () => {
+  it('keeps the clock running when a floating overlay cannot reach a bottom status rule', () => {
     // FloatingOverlays is `position="absolute" bottom="100%"` inside
     // ComposerPane's relative Box, so it grows UPWARD: it covers the `at="top"`
     // rule and never the `at="bottom"` one.
     patchUiState({ statusBar: 'bottom' })
     patchOverlayState({ modelPicker: true })
 
-    mount(idleProps)
+    mount(busyProps)
 
-    expect(oneSecondTimers(intervalSpy)).toBe(2)
+    expect(oneSecondTimers(intervalSpy)).toBe(1)
   })
 
-  it('re-syncs the elapsed read-outs from the wall clock on reveal instead of resuming stale', async () => {
-    // Regression guard for the naive fix: an early `return` that pauses the
-    // interval but never re-seeds `now` leaves SessionDuration and IdleSince
-    // frozen at the instant the overlay opened.
+  it('keeps the frozen last-task duration on screen while an overlay opens and closes', async () => {
+    // An idle rule has nothing to pause: the read-out is a duration frozen at
+    // the turn boundary, not a clock counting from a timestamp.
     patchOverlayState({ sessions: true })
 
     const rule = mount(idleProps)
 
-    expect(rule.output()).toContain('1m 0s')
-    expect(rule.output()).toContain('✓ 5s')
+    expect(rule.output()).toContain('✓ 5m 0s')
+    expect(oneSecondTimers(intervalSpy)).toBe(0)
+
+    // Five minutes of wall clock elapse while the overlay covers the rule …
+    nowSpy.mockReturnValue(T0 + 300_000)
+    resetOverlayState()
+    await flush()
+
+    // … and the read-out is unchanged: no frame ever carried a grown number.
+    expect(rule.output()).toContain('✓ 5m 0s')
+    expect(new Set(durationReadouts(rule.output()))).toEqual(new Set(['5m 0s']))
+  })
+
+  it('re-seeds the mid-turn clock on reveal instead of resuming stale', async () => {
+    // Regression guard for the naive fix: an early `return` that pauses the
+    // interval but never re-seeds `now` leaves the FaceTicker's elapsed
+    // read-out frozen at the instant the overlay opened.
+    patchOverlayState({ modelPicker: true })
+
+    const rule = mount(busyProps)
+
+    expect(oneSecondTimers(intervalSpy)).toBe(0)
 
     // Five minutes of wall clock elapse while the overlay covers the rule.
-    nowSpy.mockReturnValue(T0 + 300_000)
+    nowSpy.mockReturnValue(T0 + 30_000)
     rule.clear()
     resetOverlayState()
     await flush()
 
-    const resumed = rule.output()
+    // Caught up to real elapsed time (turnStartedAt is T0 - 30s), not stuck on
+    // the pre-overlay value …
+    expect(rule.output()).toContain('1m 0s')
+    // … and the clock is armed again: the glyph rotation plus one 1s tick.
+    expect(armedDelays(intervalSpy)).toContain(2500)
+    expect(oneSecondTimers(intervalSpy)).toBe(1)
 
-    // Caught up to real elapsed time, not stuck on the pre-overlay values.
-    expect(resumed).toContain('6m 0s')
-    expect(resumed).toContain('✓ 5m 5s')
-    expect(resumed).not.toContain('1m 0s')
+    // Drive the freshly armed tick to prove it keeps counting from there.
+    nowSpy.mockReturnValue(T0 + 60_000)
 
-    // …and the clocks are running again.
-    expect(oneSecondTimers(intervalSpy)).toBe(2)
+    for (const tick of oneSecondTicks(intervalSpy)) {
+      tick()
+    }
+
+    await flush()
+    await flush()
+
+    expect(rule.output()).toContain('1m 30s')
   })
 
-  it('tears the clocks down when an overlay opens over an already-running status rule', async () => {
-    mount(idleProps)
+  it('tears the clock down when an overlay opens over an already-running status rule', async () => {
+    mount(busyProps)
 
-    // Handles of the two live 1-second clocks (SessionDuration + IdleSince).
+    // Handle of the live 1-second clock (the FaceTicker's elapsed read-out).
     const clocks = intervalSpy.mock.results
       .filter((_result, i) => intervalSpy.mock.calls[i]?.[1] === 1000)
       .map(result => result.value as ReturnType<typeof setInterval>)
 
-    expect(clocks).toHaveLength(2)
+    expect(clocks).toHaveLength(1)
 
     const clearSpy = vi.spyOn(globalThis, 'clearInterval')
 
@@ -337,8 +392,8 @@ describe('status-chrome timers under an occluding overlay', () => {
       expect(clearSpy).toHaveBeenCalledWith(handle)
     }
 
-    // … and the occluded re-run arms no replacement (still just the original two).
-    expect(oneSecondTimers(intervalSpy)).toBe(2)
+    // … and the occluded re-run arms no replacement (still just the original one).
+    expect(oneSecondTimers(intervalSpy)).toBe(1)
 
     clearSpy.mockRestore()
   })
@@ -361,7 +416,7 @@ describe('status-chrome timers track the current overlay model', () => {
   ]
 
   // In `$isBlocked` but NOT occluding.  `agents` / `journey` unmount the whole
-  // ComposerPane subtree, so React's effect cleanup already stops the clocks
+  // ComposerPane subtree, so React's effect cleanup already stops the clock
   // and gating on them would be dead code; the rest are PromptZone states that
   // render in normal flow and push the rule down without covering it.
   const nonOccluding: Array<[string, Partial<OverlayState>]> = [
@@ -376,30 +431,30 @@ describe('status-chrome timers track the current overlay model', () => {
     ['sudo', { sudo: { requestId: 'sudo-1' } as OverlayState['sudo'] }]
   ]
 
-  it.each(occluding)('pauses the status clocks while %s covers the rule', (_name, patch) => {
+  it.each(occluding)('pauses the mid-turn clock while %s covers the rule', (_name, patch) => {
     patchOverlayState(patch)
 
-    mount(idleProps)
+    mount(busyProps)
 
     expect(oneSecondTimers(intervalSpy)).toBe(0)
   })
 
-  it.each(nonOccluding)('keeps the status clocks running while %s is open', (_name, patch) => {
+  it.each(nonOccluding)('keeps the mid-turn clock running while %s is open', (_name, patch) => {
     patchOverlayState(patch)
 
-    mount(idleProps)
+    mount(busyProps)
 
-    expect(oneSecondTimers(intervalSpy)).toBe(2)
+    expect(oneSecondTimers(intervalSpy)).toBe(1)
   })
 
-  it('keeps the clocks running for the non-occluding ambient dock', () => {
+  it('keeps the clock running for the non-occluding ambient dock', () => {
     // `ambient` is a glanceable in-flow dock that reserves its own rows and
     // doesn't cover the status rule, so pausing there would be a regression.
     patchOverlayState({ ambient: [{ appId: 'clock', state: null }] })
 
-    mount(idleProps)
+    mount(busyProps)
 
-    expect(oneSecondTimers(intervalSpy)).toBe(2)
+    expect(oneSecondTimers(intervalSpy)).toBe(1)
   })
 })
 
@@ -409,17 +464,22 @@ describe('status-chrome timers track the current overlay model', () => {
 // assert on what is actually on screen rather than on the store alone.
 describe('AppLayout status-rule visibility', () => {
   it('keeps the status rule on screen AND its clock advancing under a flow-layout approval prompt', async () => {
-    const layout = mountLayout({ approval: { command: 'rm -rf /', requestId: 'a-1' } as OverlayState['approval'] })
+    const layout = mountLayout(
+      { approval: { command: 'rm -rf /', requestId: 'a-1' } as OverlayState['approval'] },
+      { busy: true },
+      busyLayoutProps
+    )
 
     await flush()
 
     // The rule is genuinely rendered — the approval prompt pushed it, it did
     // not cover it — so freezing its clock would freeze something visible.
     expect(layout.output()).toContain('~/repo')
-    expect(layout.output()).toContain('1m 0s')
-    expect(oneSecondTimers(intervalSpy)).toBe(2)
+    // Mid-turn elapsed read-out, seeded from turnStartedAt (T0 - 30s).
+    expect(layout.output()).toContain('30s')
+    expect(oneSecondTimers(intervalSpy)).toBe(1)
 
-    // …and it really advances: drive the armed 1s handlers forward.
+    // …and it really advances: drive the armed 1s handler forward.
     nowSpy.mockReturnValue(T0 + 30_000)
 
     for (const tick of oneSecondTicks(intervalSpy)) {
@@ -429,31 +489,32 @@ describe('AppLayout status-rule visibility', () => {
     await flush()
     await flush()
 
-    expect(layout.output()).toContain('1m 30s')
+    expect(layout.output()).toContain('1m 0s')
   })
 
   it('keeps the status rule on screen AND its clock advancing under a flow-layout sudo prompt', async () => {
-    const layout = mountLayout({ sudo: { requestId: 'sudo-1' } as OverlayState['sudo'] })
+    const layout = mountLayout({ sudo: { requestId: 'sudo-1' } as OverlayState['sudo'] }, { busy: true }, busyLayoutProps)
 
     await flush()
 
-    expect(layout.output()).toContain('1m 0s')
-    expect(oneSecondTimers(intervalSpy)).toBe(2)
+    expect(layout.output()).toContain('~/repo')
+    expect(layout.output()).toContain('30s')
+    expect(oneSecondTimers(intervalSpy)).toBe(1)
   })
 
   it('arms no clock under a floating model picker while the rule is at the top', async () => {
-    mountLayout({ modelPicker: true }, { statusBar: 'top' })
+    mountLayout({ modelPicker: true }, { busy: true, statusBar: 'top' }, busyLayoutProps)
 
     await flush()
 
     expect(oneSecondTimers(intervalSpy)).toBe(0)
   })
 
-  it('keeps the clocks armed under a floating model picker while the rule is at the bottom', async () => {
-    mountLayout({ modelPicker: true }, { statusBar: 'bottom' })
+  it('keeps the clock armed under a floating model picker while the rule is at the bottom', async () => {
+    mountLayout({ modelPicker: true }, { busy: true, statusBar: 'bottom' }, busyLayoutProps)
 
     await flush()
 
-    expect(oneSecondTimers(intervalSpy)).toBe(2)
+    expect(oneSecondTimers(intervalSpy)).toBe(1)
   })
 })

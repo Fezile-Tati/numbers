@@ -46,7 +46,7 @@ const baseProps = {
   cwdLabel: '~/repo',
   liveSessionCount: 0,
   model: 'opus-4.8',
-  sessionStartedAt: null,
+  lastTurnDurationMs: null,
   status: 'ready',
   statusColor: DEFAULT_THEME.color.ok,
   t: DEFAULT_THEME,

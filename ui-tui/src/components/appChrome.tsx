@@ -393,48 +393,16 @@ function SpawnHud({ t }: { t: Theme }) {
   )
 }
 
-function SessionDuration({ startedAt }: { startedAt: number }) {
-  const [now, setNow] = useState(() => Date.now())
-  const isOccluded = useStore($isStatusRuleOccluded)
-
-  useEffect(() => {
-    // Paused only while an overlay actually covers the status rule — see
-    // FaceTicker.  The `setNow` below already re-seeds from the wall clock
-    // on every re-arm, so it doubles as the reveal catch-up.
-    if (isOccluded) {
-      return
-    }
-
-    setNow(Date.now())
-    const id = setInterval(() => setNow(Date.now()), 1000)
-
-    return () => clearInterval(id)
-  }, [isOccluded, startedAt])
-
-  return fmtDuration(now - startedAt)
-}
-
-function IdleSince({ endedAt }: { endedAt: number }) {
-  // Time since the last final agent response. Re-ticks every second like
-  // SessionDuration so the read-out stays live while the session idles.
-  const [now, setNow] = useState(() => Date.now())
-  const isOccluded = useStore($isStatusRuleOccluded)
-
-  useEffect(() => {
-    // Paused only while an overlay actually covers the status rule — see
-    // FaceTicker.  The `setNow` below re-seeds from the wall clock on reveal
-    // so the idle read-out is not frozen when the overlay closes.
-    if (isOccluded) {
-      return
-    }
-
-    setNow(Date.now())
-    const id = setInterval(() => setNow(Date.now()), 1000)
-
-    return () => clearInterval(id)
-  }, [endedAt, isOccluded])
-
-  return `✓ ${fmtDuration(now - endedAt)}`
+/**
+ * How long the last completed task took — a frozen number.
+ *
+ * Deliberately NOT ticking: the previous segment (`IdleSince`) counted up
+ * from the last response and `SessionDuration` counted the session's whole
+ * age, so the bar showed a running clock whether or not the user had asked
+ * for anything. Both are replaced by this one read-out.
+ */
+function LastTurnDuration({ ms }: { ms: number }) {
+  return <>✓ {fmtDuration(ms)}</>
 }
 
 const effortLabel = (effort?: string) => {
@@ -500,10 +468,9 @@ export function StatusRule({
   notice,
   usage,
   bgCount,
-  lastTurnEndedAt,
+  lastTurnDurationMs,
   liveSessionCount,
   sessionTitle,
-  sessionStartedAt,
   turnStartedAt,
   voiceLabel,
   onSessionCountClick,
@@ -604,13 +571,15 @@ export function StatusRule({
       : ''
 
   const showBar = !!bar && fits(SEP + stringWidth(`[${bar}] ${pct != null ? `${pct}%` : ''}`))
-  const showDuration = segs.duration && ok('duration') && !!sessionStartedAt && fits(SEP + MAX_DURATION_WIDTH)
 
-  // Idle clock — time since the last final agent response. Hidden while busy
-  // (the FaceTicker's elapsed tail covers the live turn) and before the first
-  // turn completes. Shares the duration breakpoint and width reservation.
-  const showIdle =
-    segs.duration && !busy && lastTurnEndedAt != null && fits(SEP + stringWidth('✓ ') + MAX_DURATION_WIDTH)
+  // How long the last task took. Hidden while busy — the busy slot already
+  // shows the live elapsed time of the running turn (FaceTicker).
+  const showDuration =
+    segs.duration &&
+    ok('duration') &&
+    !busy &&
+    lastTurnDurationMs != null &&
+    fits(SEP + stringWidth('✓ ') + MAX_DURATION_WIDTH)
 
   const showCompressions =
     segs.compressions && ok('compressions') && compressions > 0 && fits(SEP + stringWidth(`cmp ${compressions}`))
@@ -736,13 +705,7 @@ export function StatusRule({
         {showDuration ? (
           <Text color={t.color.muted} wrap="truncate-end">
             {' │ '}
-            <SessionDuration startedAt={sessionStartedAt!} />
-          </Text>
-        ) : null}
-        {showIdle ? (
-          <Text color={t.color.muted} wrap="truncate-end">
-            {' │ '}
-            <IdleSince endedAt={lastTurnEndedAt!} />
+            <LastTurnDuration ms={lastTurnDurationMs!} />
           </Text>
         ) : null}
         {showCompressions ? (
@@ -935,7 +898,7 @@ interface StatusRuleProps {
   // Focus view (/focus) badge — display-only reduced-output indicator.
   focusView?: boolean
   bgCount: number
-  lastTurnEndedAt?: null | number
+  lastTurnDurationMs?: null | number
   liveSessionCount: number
   busy: boolean
   // Context compaction in progress — FaceTicker freezes on "compacting".
@@ -947,7 +910,6 @@ interface StatusRuleProps {
   modelReasoningEffort?: string
   indicatorStyle?: IndicatorStyle
   notice?: Notice | null
-  sessionStartedAt?: null | number
   sessionTitle?: string
   status: string
   // display.status_bar.fields — segment visibility filter shared with the

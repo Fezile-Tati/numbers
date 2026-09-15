@@ -601,6 +601,7 @@ export interface AppLayoutStatusProps {
   cwdLabel: string
   goodVibesTick: number
   lastTurnEndedAt: null | number
+  lastTurnDurationMs: null | number
   sessionStartedAt: null | number
   sessionTitle: string
   showStickyPrompt: boolean
