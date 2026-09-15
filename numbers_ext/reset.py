@@ -140,7 +140,12 @@ def run_reset(print_fn: Callable = print,
     print_fn(f"  To reset:  type {_BOLD}RESET{_RST} in capitals, then press Enter")
     print_fn("  To cancel: press Enter, or type anything else")
     print_fn("")
-    word = (prompt_fn("> ") or "").strip()
+    # The prompt line repeats both options on purpose. It is often the only
+    # thing still on screen once the list above has scrolled, and in the TUI it
+    # is rendered in place -- a bare "> " left the user with no idea what was
+    # being asked of them. Same convention as the Hermes import menu.
+    word = (prompt_fn("Type RESET to erase, or press Enter to cancel: ")
+            or "").strip()
     if word != "RESET":
         print_fn("Cancelled - nothing was erased.")
         return False

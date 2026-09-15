@@ -4200,13 +4200,27 @@ class CLICommandsMixin:
             _cprint("[yellow]Import cancelled.[/]")
 
     def _numbers_prompt(self, text: str) -> str:
-        """Read one line from the user without breaking the TUI."""
-        try:
-            import prompt_toolkit.shortcuts as _p
+        """Read one line from the user without breaking the TUI.
 
-            return _p.prompt(text) or ""
-        except Exception:
+        Delegates to ``_prompt_text_input``, which already solves this properly:
+        ``run_in_terminal`` on the main thread, a clean cancel off it, and an
+        ``input()`` fallback for terminals that drop the coroutine.
+
+        It must NOT call ``prompt_toolkit.shortcuts.prompt()`` -- that builds a
+        SECOND Application on top of the running one and the CLI dies with
+        "aclose(): asynchronous generator is already running", leaving the user
+        at a bare "Press ENTER to continue...".
+
+        Returns "" rather than None so callers can treat "no answer" as the
+        safe default (for /reset, that is cancel).
+        """
+        ask = getattr(self, "_prompt_text_input", None)
+        if ask is not None:
+            return ask(text) or ""
+        try:
             return input(text) or ""
+        except (EOFError, KeyboardInterrupt):
+            return ""
 
     def _numbers_exit_after_reset(self) -> None:
         """Clean process exit after a reset (mirrors the /update relaunch path)."""
