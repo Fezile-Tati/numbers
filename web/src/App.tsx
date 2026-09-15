@@ -62,6 +62,7 @@ import { Spinner } from "@nous-research/ui/ui/components/spinner";
 import { Typography } from "@nous-research/ui/ui/components/typography/index";
 import { ConfirmDialog } from "@nous-research/ui/ui/components/confirm-dialog";
 import { cn } from "@/lib/utils";
+import { RouteErrorBoundary } from "@/components/RouteErrorBoundary";
 import { SidebarFooter } from "@/components/SidebarFooter";
 import { SidebarStatusStrip, gatewayLine } from "@/components/SidebarStatusStrip";
 import { useBelowBreakpoint } from "@nous-research/ui/hooks/use-below-breakpoint";
@@ -397,7 +398,7 @@ export default function App() {
   const isDesktopCollapsed = collapsed && !isMobile;
   const tooltipWarmRef = useRef(0);
   const sidebarStatus = useSidebarStatus();
-  const isDocsRoute = pathname === "/docs" || pathname === "/docs/";
+  const isDocsPath = pathname === "/docs" || pathname === "/docs/";
   const normalizedPath = pathname.replace(/\/$/, "") || "/";
   const isChatRoute = normalizedPath === "/chat";
   const embeddedChat = isDashboardEmbeddedChatEnabled();
@@ -447,6 +448,17 @@ export default function App() {
     () => manifests.some((m) => m.tab.override === "/chat"),
     [manifests],
   );
+
+  // The built-in /docs page is an iframe and needs the full-height flex
+  // treatment below.  A plugin that overrides /docs renders an ordinary
+  // dashboard page instead, and those classes make it read as a detached,
+  // full-bleed surface rather than a page inside the shell.  Same
+  // pluginsLoading caveat as /chat: manifests arrive asynchronously.
+  const docsOverriddenByPlugin = useMemo(
+    () => manifests.some((m) => m.tab.override === "/docs"),
+    [manifests],
+  );
+  const isDocsRoute = isDocsPath && !docsOverriddenByPlugin;
 
   const builtinRoutes = useMemo(
     () => ({
@@ -612,9 +624,9 @@ export default function App() {
                 <PluginSlot name="header-left" />
 
                 <Typography className="font-bold text-[1.125rem] leading-[0.95] tracking-[0.0525rem] text-midground uppercase">
-                  Hermes
+                  NUMBER
                   <br />
-                  Agent
+                  21:4-9
                 </Typography>
               </div>
 
@@ -774,6 +786,7 @@ export default function App() {
               >
                 <ProfileKeyedRoutes>
                   <Suspense fallback={<RouteFallback />}>
+                    <RouteErrorBoundary key={normalizedPath}>
                     <Routes>
                       {routes.map(({ key, path, element }) => (
                         <Route key={key} path={path} element={element} />
@@ -785,6 +798,7 @@ export default function App() {
                         }
                       />
                     </Routes>
+                    </RouteErrorBoundary>
                   </Suspense>
                 </ProfileKeyedRoutes>
 
@@ -974,12 +988,12 @@ function SidebarSystemActions({
     if (updateConfirmInfo?.behind && updateConfirmInfo.behind > 0) {
       const cmd = updateConfirmInfo.update_command;
       const n = updateConfirmInfo.behind;
-      return `This will run 'hermes update' (${cmd}) and pull ${n} new commit${n === 1 ? "" : "s"}. The gateway restarts when the update finishes; the current session keeps its prompt cache until then.`;
+      return `This will run 'numbers update' (${cmd}) and pull ${n} new commit${n === 1 ? "" : "s"}. The gateway restarts when the update finishes; the current session keeps its prompt cache until then.`;
     }
-    const cmd = updateConfirmInfo?.update_command ?? "hermes update";
+    const cmd = updateConfirmInfo?.update_command ?? "numbers update";
     return (
       t.status.updateHermesConfirmMessage ??
-      `This will run 'hermes update' (${cmd}) and restart the gateway when it finishes.`
+      `This will run 'numbers update' (${cmd}) and restart the gateway when it finishes.`
     );
   }, [t.status.updateHermesConfirmMessage, updateConfirmInfo]);
 
@@ -1077,7 +1091,7 @@ function SidebarSystemActions({
       confirmLabel={t.status.restartGateway}
       description={
         t.status.restartGatewayConfirmMessage ??
-        "This restarts the Hermes gateway process. Connected channels and active sessions will reconnect afterward."
+        "This restarts the NUMBERS gateway process. Connected channels and active sessions will reconnect afterward."
       }
       loading={pendingAction === "restart"}
       onCancel={() => setRestartConfirmOpen(false)}

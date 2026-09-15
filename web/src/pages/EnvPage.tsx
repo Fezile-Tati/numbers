@@ -616,6 +616,15 @@ export default function EnvPage() {
   const { toast, showToast } = useToast();
   const { t } = useI18n();
   const { setAfterTitle } = usePageHeader();
+  // NUMBERS 21:4-9: the real .env location, resolved by the server.
+  const [envPath, setEnvPath] = useState("");
+
+  useEffect(() => {
+    api
+      .getStatus()
+      .then((s) => setEnvPath(s.env_path || ""))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     api
@@ -913,7 +922,7 @@ export default function EnvPage() {
       <div className="flex items-center justify-between">
         <div className="flex flex-col gap-1">
           <p className="text-sm text-muted-foreground">
-            {t.env.description} <code>~/.hermes/.env</code>
+            {t.env.description} <code>{envPath || ".env"}</code>
           </p>
           <p className="text-xs text-text-tertiary">
             {t.env.changesNote}

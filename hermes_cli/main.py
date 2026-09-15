@@ -450,6 +450,18 @@ def _try_termux_ultrafast_version() -> bool:
 
 _ensure_project_root_on_path_fast()
 
+# Initialize the skin engine before the ultrafast --version exit below --
+# format_banner_version_label() (called from print_fast_version_info())
+# reads the active skin, and without this it stays at the "default"
+# fallback since this module-level fast path returns before main() (and
+# cli.py, which normally does this) ever runs.
+try:
+    from hermes_cli.config import load_config as _load_config_for_skin
+    from hermes_cli.skin_engine import init_skin_from_config as _init_skin_for_fast_version
+    _init_skin_for_fast_version(_load_config_for_skin())
+except Exception:
+    pass  # Skin engine is optional -- default skin used if unavailable
+
 if _try_ultrafast_version():
     raise SystemExit(0)
 
@@ -11030,6 +11042,20 @@ def cmd_update(args):
     runs the update, then restores stdio on the way out (even on
     ``sys.exit`` or unhandled exceptions).
     """
+    # NUMBERS 21:4-9: never let the git updater run against this fork.
+    try:
+        from numbers_ext.home import is_numbers_home, resolve_home_env
+        if is_numbers_home(resolve_home_env()):
+            from numbers_ext.update import run_update
+
+            raise SystemExit(run_update(
+                check_only=bool(getattr(args, "check", False)
+                                or getattr(args, "plan", False)),
+                do_rollback=bool(getattr(args, "rollback", False)),
+            ))
+    except ImportError:
+        pass  # Stock Hermes checkout: numbers_ext is absent by design.
+
     from hermes_cli.config import (
         is_managed,
         managed_error,
@@ -11206,6 +11232,7 @@ def _coalesce_session_name_args(argv: list) -> list:
         "insights",
         "update",
         "uninstall",
+        "import-hermes",
         "profile",
         "dashboard",
         "serve",
@@ -12673,7 +12700,7 @@ _BUILTIN_SUBCOMMANDS = frozenset(
         "acp", "approvals", "auth", "backup", "bundles", "checkpoints", "claw", "completion",
         "computer-use",
         "config", "console", "cron", "curator", "dashboard", "serve", "debug", "doctor",
-        "dump", "egress", "fallback", "gateway", "hooks", "import", "import-agent", "insights",
+        "dump", "egress", "fallback", "gateway", "hooks", "import", "import-agent", "import-hermes", "insights",
         "gui", "desktop", "kanban", "login", "logout", "logs", "lsp", "mcp", "memory", "migrate", "moa",
         "journey", "memory-graph", "learning",
         "model", "monitoring", "pairing", "pause", "peer", "pets", "plugins", "portal", "profile",
@@ -13532,6 +13559,17 @@ def main():
     # Let child processes (and tools like huggingface_hub) detect they run
     # under an AI agent harness.
     _advertise_agent_env()
+
+    # Initialize the skin engine from config before anything (argparse
+    # --help/--version included) can render branded text. cli.py does this
+    # too, but cli.py is only imported lazily deep inside chat dispatch --
+    # too late for the --help/full-parser path, which never touches cli.py.
+    try:
+        from hermes_cli.config import load_config
+        from hermes_cli.skin_engine import init_skin_from_config
+        init_skin_from_config(load_config())
+    except Exception:
+        pass  # Skin engine is optional -- default skin used if unavailable
 
     # Force UTF-8 stdio on Windows before anything prints.  No-op elsewhere.
     try:
@@ -14998,6 +15036,65 @@ def main():
     # update command  (parser built in hermes_cli/subcommands/update.py)
     # =========================================================================
     build_update_parser(subparsers, cmd_update=cmd_update)
+
+    # =========================================================================
+    # NUMBERS 21:4-9: import-hermes command
+    # Absent from stock Hermes -- numbers_ext does not exist in a stock
+    # checkout, so the ImportError guard leaves upstream byte-identical.
+    # =========================================================================
+    try:
+        from numbers_ext import import_hermes as _numbers_import_hermes
+
+        _numbers_ih = subparsers.add_parser(
+            "import-hermes",
+            help="Import an existing Hermes install into NUMBERS, by category",
+            description=(
+                "Copy skills, providers (API keys), profiles, memory and more "
+                "out of an existing Hermes install into the isolated NUMBERS "
+                "home. The Hermes home is only ever READ, never modified."
+            ),
+        )
+        _numbers_ih.add_argument("--offer", action="store_true",
+                                 help="First-run guarded offer (no-op after the first time)")
+        _numbers_ih.add_argument("--force", action="store_true",
+                                 help="Ignore the one-time guard and open the selector")
+        _numbers_ih.add_argument("--only",
+                                 help="Import only these categories (comma list)")
+        _numbers_ih.add_argument("--all", action="store_true",
+                                 help="Import the recommended set (no prompt)")
+        _numbers_ih.add_argument("--all-including",
+                                 help="Recommended set plus advanced categories (e.g. env)")
+        _numbers_ih.add_argument("--exclude",
+                                 help="Remove these categories from the selection (comma list)")
+        _numbers_ih.add_argument("--items",
+                                 help='Pick individual items, e.g. "skills:pdf,ocr;profiles:work"')
+        _numbers_ih.add_argument("--list-items", metavar="CATEGORY",
+                                 help="Print the importable items in a category and exit")
+
+        def _numbers_cmd_import_hermes(args):
+            """Rebuild an argv for numbers_ext.import_hermes.main().
+
+            Going back through its own argparse keeps ONE definition of what
+            each flag means, so the verb and `python -m numbers_ext.import_hermes`
+            can never drift apart.
+            """
+            argv = []
+            for flag in ("offer", "force", "all"):
+                if getattr(args, flag, False):
+                    argv.append("--" + flag)
+            for flag, dest in (("--only", "only"),
+                               ("--all-including", "all_including"),
+                               ("--exclude", "exclude"),
+                               ("--items", "items"),
+                               ("--list-items", "list_items")):
+                value = getattr(args, dest, None)
+                if value:
+                    argv += [flag, value]
+            return _numbers_import_hermes.main(argv)
+
+        _numbers_ih.set_defaults(func=_numbers_cmd_import_hermes)
+    except ImportError:
+        pass  # Stock Hermes checkout: numbers_ext is absent by design.
 
     # =========================================================================
     # uninstall command  (parser built in hermes_cli/subcommands/uninstall.py)

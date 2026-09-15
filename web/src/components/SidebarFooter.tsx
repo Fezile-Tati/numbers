@@ -21,9 +21,7 @@ export function SidebarFooter({ status }: SidebarFooterProps) {
       </Typography>
 
       <a
-        href="https://nousresearch.com"
-        target="_blank"
-        rel="noopener noreferrer"
+        href="/"
         className={cn(
           "font-sans text-display text-xs tracking-[0.12em] text-midground",
           "transition-opacity hover:opacity-90",

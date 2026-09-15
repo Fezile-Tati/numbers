@@ -657,7 +657,15 @@ def get_latest_release_tag(repo_dir: Optional[Path] = None) -> Optional[tuple]:
 
 def format_banner_version_label() -> str:
     """Return the version label shown in the startup banner title."""
-    base = f"Hermes Agent v{VERSION} ({RELEASE_DATE})"
+    from hermes_cli.skin_engine import get_active_skin
+
+    _bskin = get_active_skin()
+    _agent_name = _bskin.get_branding("agent_name", "Hermes Agent") if _bskin else "Hermes Agent"
+    _agent_version = _bskin.get_branding("agent_version", "") if _bskin else ""
+    if _agent_version:
+        base = f"{_agent_name} {_agent_version}"
+    else:
+        base = f"{_agent_name} v{VERSION} ({RELEASE_DATE})"
     state = get_git_banner_state()
     if not state:
         return base
@@ -876,7 +884,10 @@ def load_banner_snapshot(enabled_toolsets: List[str] = None) -> Optional[Dict[st
     if not isinstance(tools, list) or not isinstance(toolset_map, dict) \
             or not isinstance(availability, dict):
         return None
-    if not isinstance(blob.get("skills_by_category"), dict):
+    # Reject snapshots that still carry the (unreliable) persisted skills dict:
+    # they predate the fix above and would keep replaying a stale catalogue. A
+    # snapshot without the key is valid - the banner computes skills live.
+    if "skills_by_category" in blob:
         return None
     return blob
 
@@ -905,7 +916,12 @@ def save_banner_snapshot(
             "lazy_tools": list(availability.get("lazy_tools", [])),
             "disabled_tools": list(availability.get("disabled_tools", [])),
         },
-        "skills_by_category": get_available_skills(),
+        # NOTE (NUMBERS 21:4-9): the skills catalogue is deliberately NOT
+        # persisted. It is cheap to scan (~100 ms, already prefetched off-thread
+        # by prefetch_banner_data()) and it changes without any bump to this
+        # snapshot fingerprint - persisting it froze the banner skill count at
+        # whatever the home held when the snapshot was first written (observed:
+        # banner said "1 skills" while `numbers skills list` reported 36).
     }
     path = _banner_snapshot_path()
     try:
@@ -1048,7 +1064,8 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
             preset_name = preset_name[:25] + "..."
         agg_str = f" [dim {dim}]·[/] [dim {dim}]agg {agg_label}[/]" if agg_label else ""
         ctx_str = f" [dim {dim}]·[/] [dim {dim}]{_format_context_length(context_length)} context[/]" if context_length else ""
-        left_lines.append(f"[{accent}]MoA: {preset_name}[/]{agg_str}{ctx_str} [dim {dim}]·[/] [dim {dim}]Nous Research[/]")
+        _org = _bskin.get_branding("organization", "Nous Research") if _bskin else "Nous Research"
+        left_lines.append(f"[{accent}]MoA: {preset_name}[/]{agg_str}{ctx_str} [dim {dim}]·[/] [dim {dim}]{_org}[/]")
     else:
         if not (model or "").strip() or (model or "").strip().lower() == "unknown":
             # Unconfigured install: say so in red instead of a blank/"unknown"
@@ -1065,7 +1082,8 @@ def build_welcome_banner(console: "Console", model: str, cwd: str,
             if len(model_short) > 28:
                 model_short = model_short[:25] + "..."
             ctx_str = f" [dim {dim}]·[/] [dim {dim}]{_format_context_length(context_length)} context[/]" if context_length else ""
-            left_lines.append(f"[{accent}]{model_short}[/]{ctx_str} [dim {dim}]·[/] [dim {dim}]Nous Research[/]")
+            _org = _bskin.get_branding("organization", "Nous Research") if _bskin else "Nous Research"
+            left_lines.append(f"[{accent}]{model_short}[/]{ctx_str} [dim {dim}]·[/] [dim {dim}]{_org}[/]")
 
     if os.getenv("HERMES_YOLO_MODE"):
         left_lines.append(f"[bold red]⚠ YOLO mode[/] [dim {dim}]— all approval prompts bypassed[/]")

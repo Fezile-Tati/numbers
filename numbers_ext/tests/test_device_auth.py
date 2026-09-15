@@ -1,4 +1,5 @@
 import json
+import os
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -125,17 +126,6 @@ def test_ssl_ctx_relaxes_only_for_loopback():
     assert remote.verify_mode == da.ssl.CERT_REQUIRED and remote.check_hostname is True
 
 
-def test_redact_secrets_scrubs_token_like_values():
-    scrubbed = da.redact_secrets('minted token="abc123DEF456" for user 7')
-    assert "abc123DEF456" not in scrubbed
-    assert "[REDACTED]" in scrubbed
-
-
-def test_redact_secrets_leaves_ordinary_text_alone():
-    line = "signed in as numbers-cli:test"
-    assert da.redact_secrets(line) == line
-
-
 def test_is_headless_true_when_ci_env_set(monkeypatch):
     monkeypatch.setenv("CI", "true")
     assert da._is_headless() is True
@@ -184,6 +174,26 @@ def test_persist_agent_token_writes_locked_file(tmp_path, monkeypatch, capsys):
     assert "NUMBERS_AGENT_TOKEN=tok-abc" in (tmp_path / ".env").read_text(encoding="utf-8")
     # The value must never be echoed to the console by the storage helper.
     assert "tok-abc" not in capsys.readouterr().out
+
+
+def test_persist_does_not_leak_the_token_into_the_process_environment(
+    tmp_path, monkeypatch
+):
+    """Storing a token must not hand a bearer to every subprocess we spawn.
+
+    _persist used to export NUMBERS_AGENT_TOKEN into os.environ, so every shell
+    tool, hook and MCP server the agent started inherited a live credential for
+    the rest of the session. The one consumer that needs it -- the Angel MCP
+    child -- reads the owner-only agent-token file instead.
+    """
+    (tmp_path / "numbers-home.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("NUMBERS_HOME", str(tmp_path))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    monkeypatch.delenv("NUMBERS_AGENT_TOKEN", raising=False)
+
+    assert da.persist_agent_token("tok-abc") == 0
+
+    assert "NUMBERS_AGENT_TOKEN" not in os.environ
 
 
 def test_persist_agent_token_refuses_a_foreign_home(tmp_path, monkeypatch):

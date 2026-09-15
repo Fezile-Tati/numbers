@@ -4899,7 +4899,13 @@ def _gateway_subcommand(profile: Optional[str], verb: str) -> List[str]:
 
 
 def _gateway_display_command(profile: Optional[str], verb: str) -> str:
-    return " ".join(["hermes", *_gateway_subcommand(profile, verb)])
+    # Cosmetic only: the command we TELL the user to type. The subcommand itself
+    # is unchanged, and an unskinned harness still prints "hermes ...".
+    from hermes_cli.skin_engine import get_active_skin
+
+    _skin = get_active_skin()
+    _cli = _skin.get_branding("cli_name", "hermes") if _skin else "hermes"
+    return " ".join([_cli, *_gateway_subcommand(profile, verb)])
 
 
 # Kept in sync with the corresponding frontend validation in ChannelsPage.tsx.
@@ -5159,6 +5165,14 @@ async def update_hermes():
     )
 
     refusal = evaluate_update_admission(PROJECT_ROOT)
+    try:
+        from numbers_ext.home import is_numbers_home, resolve_home_env
+        if is_numbers_home(resolve_home_env()):
+            # NUMBERS updates by release artifact, never by git: the
+            # git-checkout admission gate has nothing to say about it.
+            refusal = None
+    except ImportError:
+        pass  # Stock Hermes: numbers_ext is absent by design.
     if refusal is not None:
         _record_completed_action("hermes-update", refusal.message, exit_code=1)
         record_refusal_receipt(refusal)
@@ -20177,7 +20191,11 @@ def start_server(
                 # support bundles when the backend was actually up.
                 print(f"  Hermes backend listening on {host}:{actual_port}", flush=True)
             else:
-                print(f"  Hermes Web UI → http://{host}:{actual_port}")
+                from hermes_cli.skin_engine import get_active_skin as _get_active_skin
+
+                _wskin = _get_active_skin()
+                _wname = _wskin.get_branding("agent_name", "Hermes") if _wskin else "Hermes"
+                print(f"  {_wname} Web UI → http://{host}:{actual_port}")
             _maybe_open_browser(host, actual_port, open_browser, initial_profile)
 
             if start_mcp_discovery_after_bind:

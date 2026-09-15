@@ -11,6 +11,7 @@ because its dispatch is tightly coupled to module-level ``cmd_*`` functions.
 """
 
 import argparse
+import re
 from functools import lru_cache
 
 
@@ -133,6 +134,61 @@ For more help on a command:
 """
 
 
+# NUMBERS 21:4-9 fork additions: --help/--version argparse branding.
+# Reads the active skin (see hermes_cli/skin_engine.py) so a stock/personal
+# Hermes install (skin stays "default") renders byte-identical to before
+# this hook existed; only a non-default skin (e.g. "numbers") changes output.
+def _cli_prog_name() -> str:
+    """Program name shown in argparse usage lines. "hermes" unless a
+    non-default branding skin is active (e.g. "numbers")."""
+    try:
+        from hermes_cli.skin_engine import get_active_skin
+
+        skin = get_active_skin()
+        if skin and skin.name and skin.name != "default":
+            return skin.name
+    except Exception:
+        pass
+    return "hermes"
+
+
+def _cli_description() -> str:
+    """Top-level --help description, honoring the active skin's agent_name."""
+    try:
+        from hermes_cli.skin_engine import get_active_skin
+
+        skin = get_active_skin()
+        if skin:
+            agent_name = skin.get_branding("agent_name", "Hermes Agent")
+            return f"{agent_name} - AI assistant with tool-calling capabilities"
+    except Exception:
+        pass
+    return "Hermes Agent - AI assistant with tool-calling capabilities"
+
+
+def _cli_chat_description() -> str:
+    """chat subparser --help description, honoring the active skin's agent_name."""
+    try:
+        from hermes_cli.skin_engine import get_active_skin
+
+        skin = get_active_skin()
+        if skin:
+            agent_name = skin.get_branding("agent_name", "Hermes Agent")
+            return f"Start an interactive chat session with {agent_name}"
+    except Exception:
+        pass
+    return "Start an interactive chat session with Hermes Agent"
+
+
+def _render_epilogue(prog: str) -> str:
+    """Rewrite _EPILOGUE's example lines to use ``prog`` instead of the
+    hardcoded "hermes" command token. Only the leading command word on each
+    line is replaced (anchored to start-of-line + trailing whitespace), so
+    embedded argument values like "hermes-agent-dev" in the -s example are
+    left untouched."""
+    return re.sub(r"(?m)^(\s*)hermes(?=\s)", lambda m: m.group(1) + prog, _EPILOGUE)
+
+
 def build_top_level_parser():
     """Build the top-level parser, the subparsers action, and the ``chat`` subparser.
 
@@ -140,11 +196,12 @@ def build_top_level_parser():
     ``chat_parser.set_defaults(func=cmd_chat)`` and continues registering
     other subparsers via ``subparsers.add_parser(...)``.
     """
+    _numbers_prog = _cli_prog_name()
     parser = argparse.ArgumentParser(
-        prog="hermes",
-        description="Hermes Agent - AI assistant with tool-calling capabilities",
+        prog=_numbers_prog,
+        description=_cli_description(),
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog=_EPILOGUE,
+        epilog=_render_epilogue(_numbers_prog),
     )
 
     parser.add_argument(
@@ -347,7 +404,7 @@ def build_top_level_parser():
     chat_parser = subparsers.add_parser(
         "chat",
         help="Interactive chat with the agent",
-        description="Start an interactive chat session with Hermes Agent",
+        description=_cli_chat_description(),
     )
     _query_group = chat_parser.add_mutually_exclusive_group()
     _query_group.add_argument(

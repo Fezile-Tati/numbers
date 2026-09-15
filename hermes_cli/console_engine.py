@@ -171,7 +171,9 @@ def _format_job(job: dict, action: str) -> str:
 
 
 def _parser_root() -> tuple[_ArgumentParser, argparse._SubParsersAction]:
-    parser = _ArgumentParser(prog="hermes", add_help=False)
+    from hermes_cli._parser import _cli_prog_name
+
+    parser = _ArgumentParser(prog=_cli_prog_name(), add_help=False)
     subparsers = parser.add_subparsers(dest="_console_command")
     return parser, subparsers
 

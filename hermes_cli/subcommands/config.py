@@ -63,6 +63,10 @@ def build_config_parser(subparsers, *, cmd_config: Callable) -> None:
     config_subparsers.add_parser("check", help="Check for missing/outdated config")
 
     # config migrate
-    config_subparsers.add_parser("migrate", help="Update config with new options")
+    config_migrate = config_subparsers.add_parser("migrate", help="Update config with new options")
+    # NUMBERS 21:4-9: unattended installs (scripts/install_numbers_cli.ps1) and
+    # `numbers update` must apply pending config migrations with no TTY.
+    config_migrate.add_argument("--yes", "-y", action="store_true",
+                                help="Apply every pending migration without prompting")
 
     config_parser.set_defaults(func=cmd_config)

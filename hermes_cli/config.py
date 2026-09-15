@@ -6419,8 +6419,10 @@ def config_command(args):
         
         print()
         
-        # Run migration
-        results = migrate_config(interactive=True, quiet=False)
+        # Run migration. NUMBERS 21:4-9: --yes runs it unattended (installer
+        # and `numbers update`); interactive remains the default for humans.
+        _numbers_noninteractive = bool(getattr(args, "yes", False))
+        results = migrate_config(interactive=not _numbers_noninteractive, quiet=False)
         
         print()
         if results["env_added"] or results["config_added"]:

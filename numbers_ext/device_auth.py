@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import socket
 import ssl
 import sys
@@ -33,26 +32,6 @@ from numbers_ext import home
 
 API_CLIENT_ID = "numbers-cli"
 DEFAULT_HUB = os.environ.get("NUMBERS_HUB_URL", "https://127.0.0.1:3000")
-
-# Matches the shape of the agent token this module ever handles, so it can be
-# scrubbed from anything that might reach a log file. Deliberately loose (8+
-# opaque chars after a recognizable key/label) rather than tied to one issuer
-# format -- the cost of over-redacting a log line is nothing; the cost of
-# under-redacting a secret is a leak.
-_SECRET_PATTERN = re.compile(
-    r'(?i)\b(token|agent[_-]?token|code)["\']?\s*[:=]\s*["\']?([A-Za-z0-9._-]{6,})'
-)
-
-
-def redact_secrets(text: str) -> str:
-    """Scrub bearer tokens / device codes out of a string before it is logged.
-
-    Never applied to the deliberate one-time "here is your token, copy it"
-    prints in numbers_ext.tokens -- only meant for the general logging path
-    (hermes_logging / crash reports), which never needs the plaintext.
-    """
-    return _SECRET_PATTERN.sub(lambda m: f"{m.group(1)}=[REDACTED]", text)
-
 
 def _is_headless() -> bool:
     """True when there is no local display to pop a browser window into.
@@ -202,7 +181,14 @@ def _persist(token: str) -> None:
     _lock_down(Path(tmp))
     os.replace(tmp, tok)
     _env_upsert(home_dir / ".env", "NUMBERS_AGENT_TOKEN", token)
-    os.environ["NUMBERS_AGENT_TOKEN"] = token  # live children see it
+    # Deliberately NOT exported into os.environ. Doing so handed a live bearer
+    # token to every process the agent spawns - shell tools, MCP servers, hooks,
+    # anything - for the whole session, which is far wider than the one consumer
+    # that needs it. The Angel MCP child resolves the token itself, from the
+    # owner-only agent-token file written just above (resolveToken, rung 3 in
+    # cmd/numbers-mcp/token.go), so the export bought nothing. Every in-process
+    # reader (numbers_ext.tokens._read_token, run_logout below) already falls
+    # back to that same file.
 
 
 def persist_agent_token(token: str, print_fn: Callable = print) -> int:
