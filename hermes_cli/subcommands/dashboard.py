@@ -13,6 +13,8 @@ from __future__ import annotations
 import argparse
 from typing import Callable
 
+from hermes_cli._parser import _cli_dashboard_port
+
 
 def _add_server_runtime_args(parser) -> None:
     """Attach the runtime flags shared by ``dashboard`` and ``serve``.
@@ -24,7 +26,13 @@ def _add_server_runtime_args(parser) -> None:
     browser-opening behavior and help framing differ.
     """
     parser.add_argument(
-        "--port", type=int, default=9119, help="Port (default 9119, 0 for auto-assign by OS)"
+        "--port",
+        type=int,
+        default=_cli_dashboard_port(),
+        help=(
+            "Port (default: the active skin's dashboard_port, else 9119; "
+            "0 for auto-assign by OS)"
+        ),
     )
     parser.add_argument(
         "--host", default="127.0.0.1", help="Host (default 127.0.0.1)"

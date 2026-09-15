@@ -8861,6 +8861,8 @@ def _find_stale_dashboard_pids(
 
 def _parse_dashboard_runtime(command: str) -> tuple[str, str, int] | None:
     """Best-effort parse of a dashboard/server cmdline into mode, host, and port."""
+    from hermes_cli._parser import _cli_dashboard_port
+
     mode = None
     if any(
         pattern in command
@@ -8883,7 +8885,7 @@ def _parse_dashboard_runtime(command: str) -> tuple[str, str, int] | None:
     if mode is None:
         return None
 
-    port = 9119
+    port = _cli_dashboard_port()
     host = "127.0.0.1"
 
     port_match = re.search(r"(?:^|\s)--port(?:=|\s+)(\d+)", command)

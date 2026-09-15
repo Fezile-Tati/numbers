@@ -189,6 +189,29 @@ def _render_epilogue(prog: str) -> str:
     return re.sub(r"(?m)^(\s*)hermes(?=\s)", lambda m: m.group(1) + prog, _EPILOGUE)
 
 
+def _cli_dashboard_port() -> int:
+    """Default ``dashboard``/``serve`` port: 9119 unless the active skin says otherwise.
+
+    Ports are machine-wide, so two installs sharing a default collide: the
+    second one's ``dashboard`` finds something listening and ATTACHES to it
+    (``_dashboard_listening`` is a bare TCP-connect probe -- it proves *a*
+    dashboard is up, never *whose*), which is how a stock `hermes dashboard`
+    ended up opening the branded UI. A branded skin moves its own default; the
+    fallback is upstream's literal, so a stock install is unchanged.
+    """
+    try:
+        from hermes_cli.skin_engine import get_active_skin
+
+        skin = get_active_skin()
+        raw = str(skin.get_branding("dashboard_port", "") if skin else "").strip()
+        port = int(raw)
+        if 1 <= port <= 65535:
+            return port
+    except Exception:
+        pass
+    return 9119
+
+
 def build_top_level_parser():
     """Build the top-level parser, the subparsers action, and the ``chat`` subparser.
 
