@@ -29,6 +29,11 @@ _CONVERSATION_TABLES = (
 )
 _KEEP_ALWAYS_SKILLS = {"use-angel"}
 
+# ANSI, not Rich markup -- see run_reset's docstring.
+_BOLD = "\033[1m"
+_RED = "\033[31m"
+_RST = "\033[0m"
+
 
 def _wipe_conversations(home_dir: Path) -> int:
     db_path = home_dir / "state.db"
@@ -103,25 +108,52 @@ def wipe(home_dir: Path, confirm_word: str) -> dict:
     return report
 
 
-def run_reset(print_fn: Callable = print) -> bool:
-    """CLI entry used by /reset. Returns True when the wipe ran."""
+def run_reset(print_fn: Callable = print,
+              prompt_fn: Optional[Callable] = None) -> bool:
+    """CLI entry used by /reset. Returns True when the wipe ran.
+
+    The caller's ``print_fn`` (``cli._cprint``) renders ANSI escapes, NOT Rich
+    markup -- an earlier version of this screen used ``[bold red]...[/]`` and
+    the tags were printed literally at the user. Keep this text plain, and use
+    the module's ANSI constants for emphasis.
+    """
+    prompt_fn = prompt_fn or (lambda t: input(t))
     home_dir = home.require_numbers_home()
-    print_fn("[bold red]Factory reset[/] will erase, in this NUMBERS install:")
-    print_fn("  - every conversation and session (state.db, vacuumed)")
-    print_fn("  - memory files (memories/*.md)")
-    print_fn("  - skills not in the install manifest (stock skills and "
-             "'use angel' stay)")
-    print_fn("  - caches, terminal dumps and sandbox content")
-    print_fn("Kept: your provider setup, the Angel connection, and config.")
-    word = input('Type RESET to confirm, anything else to cancel: ').strip()
+    print_fn("")
+    print_fn(f"{_BOLD}{_RED}Factory reset{_RST}")
+    print_fn("")
+    # Say what survives before asking for the scary word: the usual worry at
+    # this prompt is "will I have to set my providers up again?" (no).
+    print_fn("This ERASES, in NUMBERS only:")
+    print_fn("  - every conversation and session")
+    print_fn("  - your memory files")
+    print_fn("  - any skill you installed yourself")
+    print_fn("  - caches, terminal dumps and sandboxes")
+    print_fn("")
+    print_fn("This is KEPT:")
+    print_fn("  - your providers and API keys")
+    print_fn("  - your Intersession / Angel connection")
+    print_fn("  - your settings, and the skills NUMBERS came with")
+    print_fn("")
+    print_fn("Your Hermes install is NOT touched. This cannot be undone.")
+    print_fn("")
+    print_fn(f"  To reset:  type {_BOLD}RESET{_RST} in capitals, then press Enter")
+    print_fn("  To cancel: press Enter, or type anything else")
+    print_fn("")
+    word = (prompt_fn("> ") or "").strip()
     if word != "RESET":
-        print_fn("[yellow]Cancelled.[/]")
+        print_fn("Cancelled - nothing was erased.")
         return False
     report = wipe(home_dir, word)
     if report["aborted"]:
-        print_fn(f"[red]{report['reason']}[/]")
+        print_fn(f"Reset aborted: {report['reason']}")
         return False
-    print_fn(f"[green]Done.[/] {report['conversations_deleted']} rows removed; "
-             f"skills pruned: {', '.join(report['skills_pruned']) or 'none'}")
-    print_fn("Run `numbers sessions optimize` after restart to merge FTS segments.")
+    pruned = ", ".join(report["skills_pruned"]) or "none"
+    print_fn("")
+    print_fn(f"{_BOLD}Reset complete.{_RST}")
+    print_fn(f"  conversations erased: {report['conversations_deleted']}")
+    print_fn(f"  skills removed:       {pruned}")
+    print_fn("")
+    print_fn("NUMBERS will close now. Start it again by running:  numbers")
+    print_fn("Then, to finish tidying the search index:  numbers sessions optimize")
     return True

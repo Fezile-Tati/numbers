@@ -67,3 +67,51 @@ def test_reset_without_manifest_prunes_nothing(tmp_path):
     report = reset.wipe(home, confirm_word="RESET")
     assert report["skills_pruned"] == []          # fail closed: no guessing
     assert (home / "skills" / "added-b").exists()
+
+
+def _screen(home, answer):
+    """Render the /reset confirmation screen; return (lines, did_wipe)."""
+    lines = []
+    did = reset.run_reset(print_fn=lines.append, prompt_fn=lambda _t: answer)
+    return "\n".join(lines), did
+
+
+def test_reset_screen_uses_no_rich_markup(tmp_path, monkeypatch):
+    """cli._cprint renders ANSI, not Rich -- tags would print literally."""
+    home = _seed_home(tmp_path)
+    monkeypatch.setattr(reset.home, "require_numbers_home", lambda: home)
+    text, _ = _screen(home, "")
+    for tag in ("[bold red]", "[/]", "[yellow]", "[green]", "[red]"):
+        assert tag not in text
+
+
+def test_reset_screen_states_the_exact_confirmation_step(tmp_path, monkeypatch):
+    home = _seed_home(tmp_path)
+    monkeypatch.setattr(reset.home, "require_numbers_home", lambda: home)
+    text, did = _screen(home, "")
+    assert "type \x1b[1mRESET\x1b[0m in capitals, then press Enter" in text
+    assert "To cancel: press Enter, or type anything else" in text
+    # Both halves of the stakes are spelled out, not just the erasure.
+    assert "This ERASES, in NUMBERS only:" in text
+    assert "This is KEPT:" in text
+    assert "your providers and API keys" in text
+    assert "Hermes install is NOT touched" in text
+    assert "cannot be undone" in text
+    # Empty input cancels, and says so.
+    assert did is False and "Cancelled - nothing was erased." in text
+
+
+def test_lowercase_reset_does_not_wipe(tmp_path, monkeypatch):
+    home = _seed_home(tmp_path)
+    monkeypatch.setattr(reset.home, "require_numbers_home", lambda: home)
+    _text, did = _screen(home, "reset")
+    assert did is False
+
+
+def test_confirmed_reset_tells_the_user_what_happens_next(tmp_path, monkeypatch):
+    home = _seed_home(tmp_path)
+    monkeypatch.setattr(reset.home, "require_numbers_home", lambda: home)
+    text, did = _screen(home, "RESET")
+    assert did is True
+    assert "Reset complete." in text
+    assert "Start it again by running:  numbers" in text

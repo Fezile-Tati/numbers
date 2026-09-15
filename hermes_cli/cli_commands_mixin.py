@@ -4180,8 +4180,9 @@ class CLICommandsMixin:
         from cli import _cprint
         from numbers_ext.reset import run_reset
 
-        if run_reset(print_fn=_cprint):
-            _cprint("[bold green]NUMBERS has been reset. Restarting...[/]")
+        # prompt_fn matters: a bare input() from inside the prompt_toolkit
+        # app can swallow the confirmation line entirely.
+        if run_reset(print_fn=_cprint, prompt_fn=self._numbers_prompt):
             self._numbers_exit_after_reset()
 
     def _handle_import_hermes_command(self, command: str) -> None:
