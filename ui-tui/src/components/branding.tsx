@@ -1,4 +1,4 @@
-import { Box, Text, useStdout } from '@hermes/ink'
+import { Box, stringWidth, Text, useStdout } from '@hermes/ink'
 import { useEffect, useState } from 'react'
 import unicodeSpinners from 'unicode-animations'
 
@@ -54,11 +54,44 @@ export function ArtLines({ lines }: { lines: [string, string][] }) {
 // Terminals can't scale glyphs, so "responsive" means picking a layout that
 // fits the available columns. Thresholds are picked so each tier reads
 // comfortably without forcing wrap or truncation drift on box-drawing edges.
-const TAG_FULL = 'Nous Research · Messenger of the Digital Gods'
-const TAG_MID = 'Messenger of the Digital Gods'
-const TAG_TINY = 'Nous Research'
+
+// The verses a NUMBERS user reads first. Upstream's line named another product
+// in the single most-read string this app prints, so it is replaced rather
+// than restyled. `full` is ~110 display columns: see taglineFor() for how a
+// narrower terminal drops a tier instead of printing an ellipsis.
+export const BANNER_TAGLINES = {
+  full: 'Love the Lord your God with all your heart and with all your soul and with all your mind. — Matthew 22:37–38',
+  mid: 'Love your neighbour as yourself. — Matthew 22:39',
+  tiny: 'Matthew 22:37–39'
+} as const
+
+// The organisation label beside the model (`<model> · Intersession`). Was the
+// upstream organisation, duplicated at two call sites.
+export const ORG_LABEL = 'Intersession'
+
 const HIDE_BELOW = 34
 const COMPACT_FROM = 58
+
+/**
+ * Longest tagline that fits the column budget without an ellipsis.
+ *
+ * The full verse is ~110 columns, so a fixed tier constant renders
+ * `…and with all your…` on a 72-column terminal. Choosing by measured width
+ * keeps a complete sentence on screen at every breakpoint.
+ */
+export function taglineFor(cols: number): string {
+  const budget = Math.max(0, cols - 4)
+
+  if (stringWidth(BANNER_TAGLINES.full) <= budget) {
+    return BANNER_TAGLINES.full
+  }
+
+  if (stringWidth(BANNER_TAGLINES.mid) <= budget) {
+    return BANNER_TAGLINES.mid
+  }
+
+  return BANNER_TAGLINES.tiny
+}
 
 const clip = (s: string, w: number) => (w <= 0 ? '' : s.length > w ? `${s.slice(0, Math.max(0, w - 1))}…` : s)
 
@@ -94,7 +127,7 @@ function CompactBanner({ cols, t }: { cols: number; t: Theme }) {
   return (
     <Box flexDirection="column" height={3} marginBottom={1} width={w}>
       <Text color={t.color.primary}>{ruleIn(t.brand.name, w)}</Text>
-      <Text color={t.color.muted}>{centerIn(TAG_FULL, w)}</Text>
+      <Text color={t.color.muted}>{centerIn(taglineFor(w), w)}</Text>
       <Text color={t.color.primary}>{'─'.repeat(w)}</Text>
     </Box>
   )
@@ -130,7 +163,7 @@ export function Banner({ maxWidth, t }: { maxWidth?: number; t: Theme }) {
             {
               children: (
                 <Text color={t.color.muted} wrap="truncate-end">
-                  {t.brand.icon} {TAG_FULL}
+                  {t.brand.icon} {taglineFor(cols)}
                 </Text>
               ),
               id: 'banner-tagline'
@@ -156,7 +189,7 @@ export function Banner({ maxWidth, t }: { maxWidth?: number; t: Theme }) {
   }
 
   const name = cols >= 52 ? t.brand.name : (t.brand.name.split(' ')[0] ?? t.brand.name)
-  const tag = cols >= 64 ? TAG_FULL : cols >= 46 ? TAG_MID : TAG_TINY
+  const tag = taglineFor(cols)
 
   return (
     <Box flexDirection="column" marginBottom={1}>
@@ -355,7 +388,7 @@ export function SessionPanel({ info, maxWidth, sid, t }: SessionPanelProps) {
 
       <Text color={t.color.accent}>
         {info.model.split('/').pop()}
-        <Text color={t.color.muted}> · Nous Research</Text>
+        <Text color={t.color.muted}> · {ORG_LABEL}</Text>
       </Text>
 
       <Text color={t.color.muted} wrap="truncate-end">
@@ -387,7 +420,7 @@ export function SessionPanel({ info, maxWidth, sid, t }: SessionPanelProps) {
         <Box flexDirection="column" marginBottom={1}>
           <Text color={t.color.accent} wrap="truncate-end">
             {info.model.split('/').pop()}
-            <Text color={t.color.muted}> · Nous Research</Text>
+            <Text color={t.color.muted}> · {ORG_LABEL}</Text>
           </Text>
           <Text color={t.color.muted} wrap="truncate-end">
             {info.cwd || process.cwd()}
