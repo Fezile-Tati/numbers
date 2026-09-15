@@ -4176,13 +4176,32 @@ class CLICommandsMixin:
         run_logout(print_fn=_cprint)
 
     def _handle_reset_command(self, command: str) -> None:
-        """Handle /reset -- factory reset (conversations, memory, skills)."""
-        from cli import _cprint
-        from numbers_ext.reset import run_reset
+        """Handle /reset -- factory reset (conversations, memory, skills).
 
-        # prompt_fn matters: a bare input() from inside the prompt_toolkit
-        # app can swallow the confirmation line entirely.
-        if run_reset(print_fn=_cprint, prompt_fn=self._numbers_prompt):
+        Confirmation goes through the prompt_toolkit modal, NOT stdin. Slash
+        commands are dispatched from the process_loop daemon thread, where any
+        input() deadlocks against prompt_toolkit's stdin ownership (#33961) --
+        which showed up as a bare "> ", "aclose(): asynchronous generator is
+        already running" and "Press ENTER to continue...".
+        """
+        from cli import _cprint
+        from numbers_ext.reset import (RESET_CHOICES, RESET_DETAIL,
+                                       describe_reset, perform_reset, run_reset)
+
+        modal = getattr(self, "_prompt_text_input_modal", None)
+        if modal is None:  # no TUI running (tests, piped stdin): plain prompt
+            if run_reset(print_fn=_cprint, prompt_fn=self._numbers_prompt):
+                self._numbers_exit_after_reset()
+            return
+
+        for line in describe_reset():
+            _cprint(line)
+        choice = modal(title="Factory reset", detail=RESET_DETAIL,
+                       choices=RESET_CHOICES)
+        if choice != "reset":  # None == cancelled or timed out
+            _cprint("Cancelled - nothing was erased.")
+            return
+        if perform_reset(print_fn=_cprint):
             self._numbers_exit_after_reset()
 
     def _handle_import_hermes_command(self, command: str) -> None:

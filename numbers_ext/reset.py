@@ -17,7 +17,7 @@ import json
 import shutil
 import sqlite3
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, List, Optional
 
 from numbers_ext import home
 
@@ -108,48 +108,48 @@ def wipe(home_dir: Path, confirm_word: str) -> dict:
     return report
 
 
-def run_reset(print_fn: Callable = print,
-              prompt_fn: Optional[Callable] = None) -> bool:
-    """CLI entry used by /reset. Returns True when the wipe ran.
+# Shown above the confirmation, in both the TUI and the plain terminal.
+# The caller's print_fn (cli._cprint) renders ANSI escapes, NOT Rich markup --
+# an earlier version used "[bold red]...[/]" and printed the tags at the user.
+def describe_reset() -> List[str]:
+    """The explanation screen, as lines. Same wording everywhere."""
+    return [
+        "",
+        f"{_BOLD}{_RED}Factory reset{_RST}",
+        "",
+        # What survives comes first: the usual worry here is "will I have to
+        # set my providers up again?" (no).
+        "This ERASES, in NUMBERS only:",
+        "  - every conversation and session",
+        "  - your memory files",
+        "  - any skill you installed yourself",
+        "  - caches, terminal dumps and sandboxes",
+        "",
+        "This is KEPT:",
+        "  - your providers and API keys",
+        "  - your Intersession / Angel connection",
+        "  - your settings, and the skills NUMBERS came with",
+        "",
+        "Your Hermes install is NOT touched. This cannot be undone.",
+        "",
+    ]
 
-    The caller's ``print_fn`` (``cli._cprint``) renders ANSI escapes, NOT Rich
-    markup -- an earlier version of this screen used ``[bold red]...[/]`` and
-    the tags were printed literally at the user. Keep this text plain, and use
-    the module's ANSI constants for emphasis.
-    """
-    prompt_fn = prompt_fn or (lambda t: input(t))
+
+# Options for the TUI modal. (key, label, hint) -- the shape
+# cli._prompt_text_input_modal expects. Deliberately NO "always approve":
+# a factory reset must never become a thing that stops asking.
+RESET_CHOICES = [
+    ("reset", "Erase and restart NUMBERS", "cannot be undone"),
+    ("cancel", "Cancel", "keep everything as it is"),
+]
+RESET_DETAIL = ("Erase every conversation, your memory files and any skill you "
+                "installed yourself. Your providers, API keys and settings are kept.")
+
+
+def perform_reset(print_fn: Callable = print) -> bool:
+    """Do the wipe and report it. Confirmation is the caller's job."""
     home_dir = home.require_numbers_home()
-    print_fn("")
-    print_fn(f"{_BOLD}{_RED}Factory reset{_RST}")
-    print_fn("")
-    # Say what survives before asking for the scary word: the usual worry at
-    # this prompt is "will I have to set my providers up again?" (no).
-    print_fn("This ERASES, in NUMBERS only:")
-    print_fn("  - every conversation and session")
-    print_fn("  - your memory files")
-    print_fn("  - any skill you installed yourself")
-    print_fn("  - caches, terminal dumps and sandboxes")
-    print_fn("")
-    print_fn("This is KEPT:")
-    print_fn("  - your providers and API keys")
-    print_fn("  - your Intersession / Angel connection")
-    print_fn("  - your settings, and the skills NUMBERS came with")
-    print_fn("")
-    print_fn("Your Hermes install is NOT touched. This cannot be undone.")
-    print_fn("")
-    print_fn(f"  To reset:  type {_BOLD}RESET{_RST} in capitals, then press Enter")
-    print_fn("  To cancel: press Enter, or type anything else")
-    print_fn("")
-    # The prompt line repeats both options on purpose. It is often the only
-    # thing still on screen once the list above has scrolled, and in the TUI it
-    # is rendered in place -- a bare "> " left the user with no idea what was
-    # being asked of them. Same convention as the Hermes import menu.
-    word = (prompt_fn("Type RESET to erase, or press Enter to cancel: ")
-            or "").strip()
-    if word != "RESET":
-        print_fn("Cancelled - nothing was erased.")
-        return False
-    report = wipe(home_dir, word)
+    report = wipe(home_dir, "RESET")
     if report["aborted"]:
         print_fn(f"Reset aborted: {report['reason']}")
         return False
@@ -162,3 +162,28 @@ def run_reset(print_fn: Callable = print,
     print_fn("NUMBERS will close now. Start it again by running:  numbers")
     print_fn("Then, to finish tidying the search index:  numbers sessions optimize")
     return True
+
+
+def run_reset(print_fn: Callable = print,
+              prompt_fn: Optional[Callable] = None) -> bool:
+    """Plain-terminal /reset: explain, ask for the word, wipe.
+
+    This is the NON-TUI path (``numbers reset``, tests, piped stdin). Inside the
+    running TUI the confirmation must go through the prompt_toolkit modal
+    instead -- a stdin read from the slash-command worker thread deadlocks
+    against prompt_toolkit's stdin ownership (#33961). See the handler.
+    """
+    prompt_fn = prompt_fn or (lambda t: input(t))
+    for line in describe_reset():
+        print_fn(line)
+    print_fn(f"  To reset:  type {_BOLD}RESET{_RST} in capitals, then press Enter")
+    print_fn("  To cancel: press Enter, or type anything else")
+    print_fn("")
+    # The prompt line restates both options: it is often the only thing left on
+    # screen once the list above has scrolled.
+    word = (prompt_fn("Type RESET to erase, or press Enter to cancel: ")
+            or "").strip()
+    if word != "RESET":
+        print_fn("Cancelled - nothing was erased.")
+        return False
+    return perform_reset(print_fn)

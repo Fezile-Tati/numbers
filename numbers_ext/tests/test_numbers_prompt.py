@@ -69,3 +69,69 @@ def test_fallback_treats_eof_as_no_answer(monkeypatch):
 
     monkeypatch.setattr("builtins.input", _boom)
     assert _Bare()._numbers_prompt("? ") == ""
+
+
+# --- /reset must confirm through the TUI modal, never through stdin --------
+# Slash commands run on the process_loop daemon thread; any input() there
+# deadlocks against prompt_toolkit's stdin ownership (#33961). Symptom: a bare
+# "> ", "aclose(): asynchronous generator is already running", "Press ENTER".
+
+class _FakeTUI(CLICommandsMixin):
+    def __init__(self, choice):
+        self._choice = choice
+        self.modal_kwargs = None
+        self.printed = []
+        self.exited = False
+
+    def _prompt_text_input_modal(self, **kw):
+        self.modal_kwargs = kw
+        return self._choice
+
+    def _prompt_text_input(self, text):  # must never be reached with a TUI up
+        raise AssertionError("/reset read stdin from the slash worker thread")
+
+    def _numbers_exit_after_reset(self):
+        self.exited = True
+
+
+def _run_reset_handler(cli, monkeypatch):
+    import numbers_ext.reset as reset
+    monkeypatch.setattr(reset, "perform_reset", lambda print_fn=print: True)
+    monkeypatch.setitem(__import__("sys").modules, "cli",
+                        type("m", (), {"_cprint": cli.printed.append}))
+    cli._handle_reset_command("/reset")
+
+
+def test_reset_confirms_through_the_modal_not_stdin(monkeypatch):
+    cli = _FakeTUI("reset")
+    _run_reset_handler(cli, monkeypatch)
+    assert cli.modal_kwargs is not None, "/reset never opened the modal"
+    assert cli.exited is True
+
+
+def test_reset_modal_spells_out_both_options(monkeypatch):
+    cli = _FakeTUI("cancel")
+    _run_reset_handler(cli, monkeypatch)
+    keys = [c[0] for c in cli.modal_kwargs["choices"]]
+    labels = " ".join(c[1] for c in cli.modal_kwargs["choices"])
+    assert keys == ["reset", "cancel"]
+    assert "Erase and restart NUMBERS" in labels and "Cancel" in labels
+    # A factory reset must never offer to stop asking.
+    assert "always" not in " ".join(keys).lower()
+
+
+def test_reset_cancels_on_anything_but_reset(monkeypatch):
+    for answer in ("cancel", None):
+        cli = _FakeTUI(answer)
+        _run_reset_handler(cli, monkeypatch)
+        assert cli.exited is False
+        assert any("Cancelled" in line for line in cli.printed)
+
+
+def test_reset_explains_itself_before_asking(monkeypatch):
+    cli = _FakeTUI("cancel")
+    _run_reset_handler(cli, monkeypatch)
+    screen = "\n".join(cli.printed)
+    assert "This ERASES, in NUMBERS only:" in screen
+    assert "This is KEPT:" in screen
+    assert "your providers and API keys" in screen
