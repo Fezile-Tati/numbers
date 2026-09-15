@@ -419,7 +419,7 @@ COMMAND_REGISTRY: list[CommandDef] = [
                cli_only=True, desktop="terminal"),
     CommandDef("logout", "Disconnect from Intersession and revoke this device's access", "Auth",
                cli_only=True, desktop="terminal"),
-    CommandDef("reset", "Factory reset: erase conversations, memory and non-default skills (NUMBERS setup stays)", "Session",
+    CommandDef("reset", 'Enter "Factory reset"; This will erase conversations, memory and non-default skills (NUMBERS setup stays)', "Session",
                cli_only=True, desktop="terminal"),
     # No "import" alias: /import is already taken (profile archives), and
     # _COMMAND_LOOKUP is last-writer-wins, so claiming it would silently
