@@ -330,3 +330,19 @@ def test_item_prompt_offers_all_and_none():
     assert pick("n") == set() and pick("none") == set()
     rendered = "\n".join(lines)
     assert "a. All 2" in rendered and "n. None" in rendered
+
+
+def test_menu_shows_a_worked_multi_pick_example():
+    avail = ["providers", "skills", "memory", "profiles", "tasks"]
+    lines = []
+    ih._prompt_selection(avail, lines.append, lambda _t: "")
+    rendered = "\n".join(lines)
+    assert 'e.g. "1,4,5" imports Providers, Profiles and Tasks' in rendered
+    # The example must describe the menu that was actually printed.
+    assert "1. Providers" in rendered and "4. Profiles" in rendered
+
+
+def test_example_shrinks_to_fit_a_short_menu():
+    assert ih._example(["providers", "skills"]) == \
+        'e.g. "1,2" imports Providers and Skills'
+    assert ih._example(["providers"]) == 'e.g. "1" imports Providers'

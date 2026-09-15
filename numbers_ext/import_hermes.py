@@ -821,6 +821,20 @@ def _recommended(avail: List[str]) -> List[str]:
     return [k for k in avail if not _CAT[k]["advanced"]]
 
 
+def _example(avail: List[str], slots: tuple = (1, 4, 5)) -> str:
+    """A worked 'type this, get that' example built from the live menu.
+
+    Falls back to whatever positions exist, so a two-entry menu reads
+    'e.g. 1,2' rather than pointing at numbers that were never printed.
+    """
+    idx = [i for i in slots if i <= len(avail)] or [1]
+    if len(idx) < 2:
+        idx = list(range(1, min(len(avail), 3) + 1))
+    names = [_CAT[avail[i - 1]]["label"] for i in idx]
+    listed = ", ".join(names[:-1]) + " and " + names[-1] if len(names) > 1 else names[0]
+    return f'e.g. "{",".join(str(i) for i in idx)}" imports {listed}'
+
+
 def _prompt_selection(avail: List[str], print_fn: Callable, prompt_fn: Callable) -> List[str]:
     print_fn("")
     print_fn("Select what to import from Hermes:")
@@ -833,9 +847,14 @@ def _prompt_selection(avail: List[str], print_fn: Callable, prompt_fn: Callable)
     print_fn(f"  a. All - every category listed above (1-{len(avail)})")
     print_fn("  n. None - import nothing")
     print_fn("")
+    # Worked example against this exact menu, so "several at once" is shown
+    # rather than described. Built from the live list: the numbers and the
+    # names can never disagree with what was just printed above.
+    print_fn(f"  Pick several by separating them with commas - {_example(avail)}")
+    print_fn("")
     raw = (prompt_fn(
-        "Enter = recommended, 'a' = all, 'n' = none, or numbers "
-        "(e.g. 1,3,5): ") or "").strip().lower()
+        "Enter = recommended, 'a' = all, 'n' = none, "
+        "or your numbers: ") or "").strip().lower()
     if raw in ("", "y", "yes", "recommended", "r"):
         return _recommended(avail)
     if raw in ("a", "all", "everything"):
