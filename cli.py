@@ -13130,6 +13130,8 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             self._handle_logout_command(cmd_original)
         elif canonical == "reset":
             self._handle_reset_command(cmd_original)
+        elif canonical == "import-hermes":
+            self._handle_import_hermes_command(cmd_original)
 
         elif canonical == "busy":
             self._handle_busy_command(cmd_original)

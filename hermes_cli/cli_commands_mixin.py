@@ -4184,6 +4184,20 @@ class CLICommandsMixin:
             _cprint("[bold green]NUMBERS has been reset. Restarting...[/]")
             self._numbers_exit_after_reset()
 
+    def _handle_import_hermes_command(self, command: str) -> None:
+        """Handle /import-hermes -- rerun the Hermes import selector on demand.
+
+        The first-run offer only fires once; this is the way back in for anyone
+        who declined it or changed their mind.
+        """
+        from cli import _cprint
+        from numbers_ext.import_hermes import run_import_command
+
+        try:
+            run_import_command(print_fn=_cprint, prompt_fn=self._numbers_prompt)
+        except (EOFError, KeyboardInterrupt):
+            _cprint("[yellow]Import cancelled.[/]")
+
     def _numbers_prompt(self, text: str) -> str:
         """Read one line from the user without breaking the TUI."""
         try:

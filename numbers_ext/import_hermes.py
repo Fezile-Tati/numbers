@@ -997,6 +997,22 @@ def offer_import(print_fn: Callable = print, prompt_fn: Optional[Callable] = Non
     return 0
 
 
+def run_import_command(print_fn: Callable = print,
+                       prompt_fn: Optional[Callable] = None) -> int:
+    """`/import-hermes` -- the on-demand rerun of the first-run offer.
+
+    Deliberately unguarded on the way in: the whole point is to reach people
+    who cancelled the offer by mistake or changed their mind later. It still
+    writes the guard on the way out, so the automatic offer stops asking.
+    """
+    rc = run_import(print_fn=print_fn, prompt_fn=prompt_fn, ask=True)
+    try:
+        (_numbers_home() / GUARD_NAME).write_text("done\n", encoding="utf-8")
+    except Exception:
+        pass  # a home we cannot write to just means the offer asks again
+    return rc
+
+
 def _parse_csv(value: Optional[str]) -> List[str]:
     return [t.strip() for t in (value or "").split(",") if t.strip()]
 

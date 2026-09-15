@@ -346,3 +346,21 @@ def test_example_shrinks_to_fit_a_short_menu():
     assert ih._example(["providers", "skills"]) == \
         'e.g. "1,2" imports Providers and Skills'
     assert ih._example(["providers"]) == 'e.g. "1" imports Providers'
+
+
+def test_slash_command_reruns_after_the_offer_was_declined(homes):
+    """The point of /import-hermes: the one-shot guard must not lock you out."""
+    ih.offer_import(print_fn=lambda *a, **k: None, prompt_fn=lambda _t: "n")
+    guard = homes["numbers"] / ih.GUARD_NAME
+    assert guard.exists()
+    # offer_import is now a no-op, but the command still opens the selector.
+    out = []
+    ih.run_import_command(print_fn=lambda *a, **k: out.append(" ".join(map(str, a))),
+                          prompt_fn=lambda _t: "1")
+    assert any("Select what to import from Hermes" in line for line in out)
+
+
+def test_slash_command_writes_the_guard(homes):
+    """Running it by hand also answers the first-run offer, so it stops asking."""
+    ih.run_import_command(print_fn=lambda *a, **k: None, prompt_fn=lambda _t: "n")
+    assert (homes["numbers"] / ih.GUARD_NAME).exists()

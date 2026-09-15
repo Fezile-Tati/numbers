@@ -421,6 +421,11 @@ COMMAND_REGISTRY: list[CommandDef] = [
                cli_only=True, desktop="terminal"),
     CommandDef("reset", "Factory reset: erase conversations, memory and non-default skills (NUMBERS setup stays)", "Session",
                cli_only=True, desktop="terminal"),
+    # No "import" alias: /import is already taken (profile archives), and
+    # _COMMAND_LOOKUP is last-writer-wins, so claiming it would silently
+    # break that command.
+    CommandDef("import-hermes", "Import skills, tools, profiles and memory from an existing Hermes install", "Configuration",
+               cli_only=True, desktop="terminal"),
 
     # Exit
     CommandDef("quit", "Exit the CLI (use --delete to also remove session history)", "Exit",
