@@ -13,10 +13,34 @@ is what made the omission look like the menu was answering a different
 question. A command a user can only reach by already knowing its name is not
 discoverable.
 
+WHERE THIS FILE RUNS
+--------------------
+Its home is ``<fork>/tests/test_slash_menu_pinning.py``. The copy under
+``numbers-dist/overlay/files/tests/`` is the DELIVERY vehicle (apply_overlay.ps1
+copies it into the fork); it is not runnable from the distribution repo, because
+the modules under test live in the sibling fork checkout and import their own
+siblings by bare module name (``hermes_state``, ``agent``, ...). Same shape as
+test_branding_sweep.py's skip-when-the-tree-is-absent.
+
 These are invariants, not snapshots: "the pinned list is non-empty, names real
 commands, and survives the cap" -- never "the list is exactly X".
 """
 from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+_FORK_ROOT = Path(__file__).resolve().parents[1]
+
+if not (_FORK_ROOT / "hermes_cli" / "commands.py").is_file() or not (
+    _FORK_ROOT / "tui_gateway" / "server.py"
+).is_file():
+    pytest.skip(
+        f"not running inside the fork checkout (looked in {_FORK_ROOT}); "
+        "run this file from <fork>/tests/",
+        allow_module_level=True,
+    )
 
 
 def _items(names):

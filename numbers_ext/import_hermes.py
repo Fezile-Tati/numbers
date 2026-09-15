@@ -1070,6 +1070,9 @@ def _prompt_selection(avail: List[str], print_fn: Callable, prompt_fn: Callable,
                 for i, (item_id, label) in enumerate(entries, 1):
                     print_fn(f"    {i}. {label or item_id}")
             print_fn("")
+            # A "?" is a QUESTION: say so, or the user reads the re-prompt as
+            # the answered line having been thrown away.
+            print_fn("  (nothing selected yet - answer again)")
             continue
         return spec
     return Spec()
@@ -1099,7 +1102,7 @@ def run_import(print_fn: Callable = print, prompt_fn: Optional[Callable] = None,
         print_fn("Nothing new to import from Hermes.")
         return 0
 
-    home = src[0] if src else None
+    home = src[0]
     if selection is None:
         pretty = ", ".join(str(p) for p in src)
         print_fn(f"Found an existing Hermes install: {pretty}")
@@ -1213,7 +1216,8 @@ def main(argv: Optional[list] = None) -> int:
     parser.add_argument("--spec", metavar="EXPR",
                         help='The same expression the interactive prompt takes, for '
                              'scripting: "1,4,5" or "1[1,3],4[all],5[1,2]". Category '
-                             "and item positions are the ones the menu/--list-items print.")
+                             "and item positions are the ones the menu/--list-items print. "
+                             "Overrides --only/--items/--all.")
     parser.add_argument("--list-items", metavar="CATEGORY",
                         help="Print the importable items in a category and exit.")
     args = parser.parse_args(argv)

@@ -447,6 +447,8 @@ def test_menu_lists_a_category_when_asked_with_a_question_mark():
                                 _catalog_fixture())
     rendered = "\n".join(lines)
     assert "1. deepseek" in rendered and "3. nous" in rendered
+    # A "?" is a question, and the re-prompt must say so plainly.
+    assert "nothing selected yet" in rendered
     assert spec.categories == ["tasks"]
 
 
