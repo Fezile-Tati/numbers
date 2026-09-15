@@ -130,7 +130,7 @@ def describe_reset() -> List[str]:
         "  - your Intersession / Angel connection",
         "  - your settings, and the skills NUMBERS came with",
         "",
-        "Your Hermes install is NOT touched. This cannot be undone.",
+        "This cannot be undone.",
         "",
     ]
 

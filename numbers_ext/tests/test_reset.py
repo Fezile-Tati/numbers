@@ -95,7 +95,6 @@ def test_reset_screen_states_the_exact_confirmation_step(tmp_path, monkeypatch):
     assert "This ERASES, in NUMBERS only:" in text
     assert "This is KEPT:" in text
     assert "your providers and API keys" in text
-    assert "Hermes install is NOT touched" in text
     assert "cannot be undone" in text
     # Empty input cancels, and says so.
     assert did is False and "Cancelled - nothing was erased." in text
