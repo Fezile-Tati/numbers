@@ -21,6 +21,7 @@ import json
 import os
 import re
 import shutil
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
@@ -787,6 +788,169 @@ def list_items(key: str, nh: Path, home: Path,
 # Selection + entrypoint
 # --------------------------------------------------------------------------
 
+# --------------------------------------------------------------------------
+# Selection expression: one line picks categories AND individual items
+#
+# The old flow asked twice -- categories, then a nested per-category item menu
+# -- so the item numbers a user wanted to type did not exist on screen until
+# AFTER the category answer, categories with fewer than two items imported
+# wholesale with no prompt at all, and an unrecognised token was dropped in
+# silence. One expression covers both levels, and a typo is reported.
+# --------------------------------------------------------------------------
+
+_ALL_TOKENS = frozenset({"a", "all", "everything", "*"})
+_NONE_TOKENS = frozenset({"n", "no", "none", "skip", "q", "quit"})
+
+
+class SpecError(ValueError):
+    """A selection expression that cannot be interpreted as written."""
+
+
+@dataclass(frozen=True)
+class Spec:
+    """What one line of user input asked for.
+
+    ``categories`` is in MENU order, not typing order, so the import report
+    reads top to bottom like the menu did. ``items`` holds only the categories
+    the user narrowed with ``[...]``; a category missing from it imports
+    everything it has -- precisely the shape ``run_import(selection=, items=)``
+    already takes, so there is no adapter between parser and importer.
+    ``listing`` holds categories asked about with ``?`` (import nothing).
+    """
+
+    categories: List[str] = field(default_factory=list)
+    items: Dict[str, set] = field(default_factory=dict)
+    listing: List[str] = field(default_factory=list)
+
+
+def _split_clauses(raw: str) -> List[str]:
+    """Split on separators that are NOT inside ``[...]``.
+
+    ``1[1,3],5`` is two clauses; ``1[1,3]`` is one. Semicolons and runs of
+    whitespace count as separators too, so the older habit of typing ``1 3``
+    keeps working.
+    """
+    clauses: List[str] = []
+    buf: List[str] = []
+    depth = 0
+    for ch in raw:
+        if ch == "[":
+            depth += 1
+        elif ch == "]":
+            depth = max(0, depth - 1)
+        if depth == 0 and (ch in ",;" or ch.isspace()):
+            clauses.append("".join(buf))
+            buf = []
+            continue
+        buf.append(ch)
+    clauses.append("".join(buf))
+    return [c.strip() for c in clauses if c.strip()]
+
+
+def _parse_item_picks(body: str, key: str, entries: List[tuple]) -> set:
+    """Resolve the inside of ``[...]`` to a set of item ids.
+
+    Accepts the item positions as printed in the catalog, plus item ids,
+    ``all`` and ``none``. ``1[]`` is the explicit "nothing from this category"
+    form; an empty result means the category is skipped, not that it is all.
+    """
+    tokens = [t for t in re.split(r"[,\s]+", body or "") if t]
+    if not tokens:
+        return set()
+    ids = [item_id for item_id, _label in entries]
+    by_id = {item_id.lower(): item_id for item_id in ids}
+    label = _CAT[key]["label"]
+    lowered = [t.lower() for t in tokens]
+    if any(t in _ALL_TOKENS for t in lowered):
+        if len(tokens) > 1:
+            raise SpecError(f"'all' must be the only entry inside {label}[...].")
+        return set(ids)
+    if len(tokens) == 1 and lowered[0] in _NONE_TOKENS:
+        return set()
+    chosen: set = set()
+    for tok, low in zip(tokens, lowered):
+        if low in _ALL_TOKENS or low in _NONE_TOKENS:
+            raise SpecError(f"'{tok}' cannot be combined with other entries.")
+        if tok.isdigit():
+            idx = int(tok) - 1
+            if not 0 <= idx < len(ids):
+                raise SpecError(
+                    f"'{tok}' is not one of {label}'s items (1-{len(ids)})."
+                )
+            chosen.add(ids[idx])
+            continue
+        if low in by_id:
+            chosen.add(by_id[low])
+            continue
+        raise SpecError(f"'{tok}' is not one of {label}'s items.")
+    return chosen
+
+
+def parse_spec(spec: str, avail: List[str],
+               catalog_of: Callable[[str], List[tuple]]) -> Spec:
+    """Parse one selection expression.
+
+    Grammar (case-insensitive; ``[...]`` groups may contain no clause
+    separator):
+
+        ""                     the recommended set (advanced categories out)
+        "a" | "all"            every listed category, everything in each
+        "n" | "none"           nothing
+        "1,4,5"                categories 1, 4 and 5 -- everything in each
+        "1[1,3,4],4[all]"      category 1 items 1/3/4; category 4 all items
+        "1[deepseek,gemini]"   item ids instead of positions
+        "2[]"                  category 2, nothing picked from it
+        "5?"                   list category 5's items (imports nothing)
+
+    Raises :class:`SpecError` for anything else so the caller can re-ask --
+    the previous flow dropped unrecognised tokens and silently imported less
+    than the user asked for.
+    """
+    raw = (spec or "").strip().lower()
+    if raw == "":
+        return Spec(categories=_recommended(avail))
+    if raw in _ALL_TOKENS:
+        return Spec(categories=list(avail))
+    if raw in _NONE_TOKENS:
+        return Spec()
+
+    categories: List[str] = []
+    items: Dict[str, set] = {}
+    listing: List[str] = []
+
+    for clause in _split_clauses(raw):
+        wants_list = clause.endswith("?")
+        body = clause[:-1].strip() if wants_list else clause
+        m = re.fullmatch(r"(\d+)\s*(?:\[([^\]]*)\])?", body)
+        if m:
+            pos = int(m.group(1))
+            if not 1 <= pos <= len(avail):
+                raise SpecError(
+                    f"'{pos}' is not one of the listed categories (1-{len(avail)})."
+                )
+            key = avail[pos - 1]
+        elif body in avail:
+            # Category NAMES still work: they were accepted before this parser
+            # existed, and a name is never ambiguous.
+            key = body
+        else:
+            raise SpecError(f"I don't understand '{clause}'.")
+        if key not in categories:
+            categories.append(key)
+        if wants_list:
+            if key not in listing:
+                listing.append(key)
+            continue
+        bracket = m.group(2) if m else None
+        if bracket is not None:
+            items[key] = _parse_item_picks(bracket, key, catalog_of(key))
+
+    # Menu order, not typing order: the import report then reads top to bottom
+    # like the menu did, however the user ordered their clauses.
+    ordered = [k for k in avail if k in categories]
+    return Spec(categories=ordered, items=items, listing=listing)
+
+
 def _missing_providers(numbers_home: Path, src_homes: List[Path]) -> List[str]:
     """Provider names present in a Hermes home but not yet in the Numbers home."""
     dst = _read_json(numbers_home / "auth.json")
@@ -835,13 +999,44 @@ def _example(avail: List[str], slots: tuple = (1, 4, 5)) -> str:
     return f'e.g. "{",".join(str(i) for i in idx)}" imports {listed}'
 
 
-def _prompt_selection(avail: List[str], print_fn: Callable, prompt_fn: Callable) -> List[str]:
+def _catalog_line(key: str, pos: int, entries: List[tuple],
+                  per_category: int = 4) -> str:
+    """One menu line: the category plus the item ids a user can name.
+
+    Printing item ids inline is the point of the one-line design -- the old
+    menu printed item numbers only AFTER the category answer, so the number a
+    user wanted to type did not exist on screen yet.
+    """
+    meta = _CAT[key]
+    tag = "" if meta["advanced"] else "  (recommended)"
+    if not entries:
+        detail = "(all)"
+    else:
+        shown = ", ".join(
+            f"{i}:{item_id}"
+            for i, (item_id, _label) in enumerate(entries[:per_category], 1)
+        )
+        extra = len(entries) - per_category
+        detail = shown + (f"  (+{extra} more - type {pos}? to list)" if extra > 0 else "")
+    return f"  {pos}. {meta['label']}{tag}  {detail}"
+
+
+def _prompt_selection(avail: List[str], print_fn: Callable, prompt_fn: Callable,
+                      catalog_of: Optional[Callable[[str], List[tuple]]] = None) -> Spec:
+    """Print the catalog and read ONE expression.
+
+    ``catalog_of`` maps a category key to its ``(item_id, label)`` pairs. When
+    omitted -- unit tests, all-or-nothing callers -- every category renders as
+    "(all)" and the item grammar has nothing to resolve against.
+
+    Re-asks (up to three times) only when the line cannot be parsed: silently
+    importing a subset because a token was dropped is the bug this replaces.
+    """
+    catalog_of = catalog_of or (lambda _key: [])
     print_fn("")
     print_fn("Select what to import from Hermes:")
     for i, key in enumerate(avail, 1):
-        meta = _CAT[key]
-        tag = "" if meta["advanced"] else "  (recommended)"
-        print_fn(f"  {i}. {meta['label']}{tag} - {meta['summary']}")
+        print_fn(_catalog_line(key, i, catalog_of(key)))
     # Spelled out as menu entries of their own: "'all' / 'none' also work"
     # tacked onto the end of a long prompt line was easy to read past.
     print_fn(f"  a. All - every category listed above (1-{len(avail)})")
@@ -851,65 +1046,34 @@ def _prompt_selection(avail: List[str], print_fn: Callable, prompt_fn: Callable)
     # rather than described. Built from the live list: the numbers and the
     # names can never disagree with what was just printed above.
     print_fn(f"  Pick several by separating them with commas - {_example(avail)}")
+    print_fn('  Narrow a category with brackets - e.g. "1[1,3],5[all]" takes '
+             "providers 1 and 3, and every task.")
+    print_fn('  A number with "?" lists that category\'s items (e.g. "5?").')
     print_fn("")
-    raw = (prompt_fn(
-        "Enter = recommended, 'a' = all, 'n' = none, "
-        "or your numbers: ") or "").strip().lower()
-    if raw in ("", "y", "yes", "recommended", "r"):
-        return _recommended(avail)
-    if raw in ("a", "all", "everything"):
-        return list(avail)
-    if raw in ("n", "no", "none", "q", "quit", "skip"):
-        return []
-    picks: List[str] = []
-    # Accept commas and/or spaces (and mixed): "1,3,5", "1 3 5", "1, 3 5".
-    for tok in re.split(r"[,\s]+", raw):
-        if not tok:
+
+    for _attempt in range(3):
+        raw = prompt_fn(
+            "Enter = recommended, 'a' = all, 'n' = none, or numbers: "
+        ) or ""
+        try:
+            spec = parse_spec(raw, avail, catalog_of)
+        except SpecError as exc:
+            print_fn(f"  {exc}")
             continue
-        if tok.isdigit():
-            idx = int(tok) - 1
-            if 0 <= idx < len(avail):
-                picks.append(avail[idx])
-        elif tok in avail:
-            picks.append(tok)
-    return picks
-
-
-def _prompt_items(key: str, items: List[tuple], print_fn: Callable,
-                  prompt_fn: Callable) -> Optional[set]:
-    """Let the user tick off individual items. None == "all of them".
-
-    Only worth asking when there is an actual choice to make, so a category
-    with fewer than two items is left alone.
-    """
-    if len(items) < 2:
-        return None
-    label = _CAT[key]["label"]
-    print_fn("")
-    print_fn(f"  {label} - pick the ones you want:")
-    for i, (_id, text) in enumerate(items, 1):
-        print_fn(f"    {i}. {text}")
-    print_fn(f"    a. All {len(items)}")
-    print_fn(f"    n. None - skip {label.lower()}")
-    raw = (prompt_fn(
-        "  Enter = all, 'n' = none, or numbers (e.g. 1,3): ") or "").strip().lower()
-    if raw in ("", "a", "all", "y", "yes", "everything"):
-        return None
-    if raw in ("n", "no", "none", "q", "quit", "skip"):
-        return set()
-    chosen: set = set()
-    for tok in re.split(r"[,\s]+", raw):
-        if not tok:
+        if spec.listing:
+            for key in spec.listing:
+                print_fn("")
+                print_fn(f"  {_CAT[key]['label']} - items:")
+                entries = catalog_of(key)
+                if not entries:
+                    print_fn("    (nothing to pick - this category is one unit)")
+                for i, (item_id, label) in enumerate(entries, 1):
+                    print_fn(f"    {i}. {label or item_id}")
+            print_fn("")
             continue
-        if tok.isdigit():
-            idx = int(tok) - 1
-            if 0 <= idx < len(items):
-                chosen.add(items[idx][0])
-        else:
-            for item_id, _text in items:
-                if tok == item_id.lower():
-                    chosen.add(item_id)
-    return chosen
+        return spec
+    return Spec()
+
 
 
 def run_import(print_fn: Callable = print, prompt_fn: Optional[Callable] = None,
@@ -935,28 +1099,26 @@ def run_import(print_fn: Callable = print, prompt_fn: Optional[Callable] = None,
         print_fn("Nothing new to import from Hermes.")
         return 0
 
+    home = src[0] if src else None
     if selection is None:
         pretty = ", ".join(str(p) for p in src)
         print_fn(f"Found an existing Hermes install: {pretty}")
-        selection = _prompt_selection(avail, print_fn, prompt_fn) if ask else _recommended(avail)
+        if ask:
+            spec = _prompt_selection(
+                avail, print_fn, prompt_fn,
+                catalog_of=lambda key: list_items(key, nh, home, src),
+            )
+        else:
+            spec = Spec(categories=_recommended(avail))
+        selection = list(spec.categories)
+        items = {key: set(picks) for key, picks in spec.items.items()}
     selection = [c for c in selection if c in avail]
     if not selection:
         print_fn("Nothing selected - nothing imported.")
         return 0
 
-    home = src[0]
     order = [k for k in _CAT_ORDER if k in selection]
     items = dict(items or {})
-    if ask:
-        # Second pass: now that the categories are known, drill into each one
-        # so the user can keep the two skills they care about and drop 58.
-        for key in order:
-            if key in items:
-                continue
-            catalog = list_items(key, nh, home, src)
-            picked = _prompt_items(key, catalog, print_fn, prompt_fn)
-            if picked is not None:
-                items[key] = picked
     print_fn("")
     for key in order:
         picks = items.get(key)
@@ -1048,6 +1210,10 @@ def main(argv: Optional[list] = None) -> int:
     parser.add_argument("--items",
                         help='Pick individual items, e.g. "skills:pdf,ocr;profiles:work". '
                              "Categories left out import everything they have.")
+    parser.add_argument("--spec", metavar="EXPR",
+                        help='The same expression the interactive prompt takes, for '
+                             'scripting: "1,4,5" or "1[1,3],4[all],5[1,2]". Category '
+                             "and item positions are the ones the menu/--list-items print.")
     parser.add_argument("--list-items", metavar="CATEGORY",
                         help="Print the importable items in a category and exit.")
     args = parser.parse_args(argv)
@@ -1064,6 +1230,19 @@ def main(argv: Optional[list] = None) -> int:
     except Exception:
         avail = list(_CAT_ORDER)
         nh, src = None, []
+    if args.spec:
+        # The prompt and the flag share one parser: what a user can type
+        # interactively is exactly what they can script.
+        try:
+            spec = parse_spec(
+                args.spec, avail,
+                lambda key: list_items(key, nh, src[0], src) if nh and src else [],
+            )
+        except SpecError as exc:
+            print(f"--spec: {exc}")
+            return 2
+        return run_import(ask=False, selection=spec.categories,
+                          items=spec.items or None)
     if args.list_items:
         if nh is None or not src:
             print("No existing Hermes install found - nothing to import.")

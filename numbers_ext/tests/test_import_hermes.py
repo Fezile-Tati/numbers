@@ -98,7 +98,7 @@ def test_selection_accepts_spaces_or_commas(homes):
     avail = ["providers", "skills", "memory", "config"]
     by_comma = ih._prompt_selection(avail, lambda *a, **k: None, lambda _t: "1,3")
     by_space = ih._prompt_selection(avail, lambda *a, **k: None, lambda _t: "1 3")
-    assert by_comma == by_space == ["providers", "memory"]
+    assert by_comma.categories == by_space.categories == ["providers", "memory"]
 
 
 def test_sessions_category_removed():
@@ -284,15 +284,6 @@ def test_items_import_only_the_chosen_provider(rich):
     assert auth["credential_pool"]["anthropic"] == [{"k": 1}]  # Numbers' own kept
 
 
-def test_prompt_items_maps_numbers_to_ids():
-    items = [("alpha", "alpha"), ("beta", "beta"), ("gamma", "gamma")]
-    picked = ih._prompt_items("skills", items, lambda *a: None, lambda t: "1, 3")
-    assert picked == {"alpha", "gamma"}
-    # Enter means "all of them", expressed as None so nothing is filtered.
-    assert ih._prompt_items("skills", items, lambda *a: None, lambda t: "") is None
-    assert ih._prompt_items("skills", items, lambda *a: None, lambda t: "none") == set()
-
-
 def test_parse_items_flag():
     assert ih._parse_items("skills:a,b;profiles:work") == {
         "skills": {"a", "b"}, "profiles": {"work"}}
@@ -314,22 +305,11 @@ def test_all_and_none_are_explicit_choices():
     # 'all' means every listed category, advanced ones included -- otherwise
     # the menu would promise more than it delivers.
     for answer in ("a", "all", "ALL", " all "):
-        assert sel(answer) == avail
+        assert sel(answer).categories == avail
     for answer in ("n", "none", "no", "skip"):
-        assert sel(answer) == []
+        assert sel(answer).categories == []
     # Enter still means the recommended set, which excludes advanced.
-    assert sel("") == ["providers", "skills"]
-
-
-def test_item_prompt_offers_all_and_none():
-    items = [("alpha", "alpha"), ("beta", "beta")]
-    lines = []
-    pick = lambda answer: ih._prompt_items("skills", items, lines.append,
-                                           lambda _t: answer)
-    assert pick("a") is None and pick("all") is None and pick("") is None
-    assert pick("n") == set() and pick("none") == set()
-    rendered = "\n".join(lines)
-    assert "a. All 2" in rendered and "n. None" in rendered
+    assert sel("").categories == ["providers", "skills"]
 
 
 def test_menu_shows_a_worked_multi_pick_example():
@@ -364,3 +344,124 @@ def test_slash_command_writes_the_guard(homes):
     """Running it by hand also answers the first-run offer, so it stops asking."""
     ih.run_import_command(print_fn=lambda *a, **k: None, prompt_fn=lambda _t: "n")
     assert (homes["numbers"] / ih.GUARD_NAME).exists()
+
+
+# --------------------------------------------------------------------------
+# One-expression selection: "1,4,5" / "1[1,3,4],4[all],5[1,2]" / "2?"
+#
+# The old flow asked twice (categories, then a nested per-category item menu),
+# so the item numbers a user wanted to type did not exist on screen until after
+# the category answer, and categories with fewer than two items were imported
+# wholesale with no prompt. One expression covers both, and an unparseable one
+# is reported instead of silently importing less than was asked for.
+# --------------------------------------------------------------------------
+
+def _catalog_fixture():
+    entries = {
+        "providers": [("deepseek", "deepseek"), ("gemini", "gemini"), ("nous", "nous")],
+        "tasks": [("kanban.db", "kanban.db"), ("projects.db", "projects.db")],
+    }
+    return lambda key: entries.get(key, [])
+
+
+def test_parse_spec_picks_categories_and_items():
+    avail = ["providers", "skills", "memory", "profiles", "tasks"]
+    catalog = _catalog_fixture()
+
+    spec = ih.parse_spec("1[1,3],5[2],3", avail, catalog)
+    # Categories come back in MENU order, not typing order.
+    assert spec.categories == ["providers", "memory", "tasks"]
+    assert spec.items == {"providers": {"deepseek", "nous"}, "tasks": {"projects.db"}}
+
+    # 'all' and the empty bracket are the two explicit whole/none forms.
+    assert ih.parse_spec("1[all],5[]", avail, catalog).items == {
+        "providers": {"deepseek", "gemini", "nous"}, "tasks": set()}
+    # Item ids work as well as positions, so a selection can be scripted.
+    assert ih.parse_spec("1[gemini]", avail, catalog).items == {"providers": {"gemini"}}
+    # No bracket means "everything in that category" -> key absent from items.
+    assert ih.parse_spec("3", avail, catalog).items == {}
+
+
+def test_parse_spec_all_none_and_recommended():
+    avail = ["providers", "skills", "env"]          # env is the advanced one
+    catalog = _catalog_fixture()
+    assert ih.parse_spec("a", avail, catalog).categories == avail
+    assert ih.parse_spec("all", avail, catalog).categories == avail
+    assert ih.parse_spec("n", avail, catalog).categories == []
+    assert ih.parse_spec("none", avail, catalog).categories == []
+    # Enter still means the recommended set, which excludes advanced categories.
+    assert ih.parse_spec("", avail, catalog).categories == ["providers", "skills"]
+
+
+def test_parse_spec_accepts_commas_spaces_and_semicolons():
+    avail = ["providers", "skills", "memory", "config"]
+    catalog = _catalog_fixture()
+    assert ih.parse_spec("1,3", avail, catalog).categories == ["providers", "memory"]
+    assert ih.parse_spec("1 3", avail, catalog).categories == ["providers", "memory"]
+    assert ih.parse_spec("1;3", avail, catalog).categories == ["providers", "memory"]
+    # A separator INSIDE brackets is an item separator, not a clause separator.
+    assert ih.parse_spec("1[1, 2]", avail, catalog).items == {
+        "providers": {"deepseek", "gemini"}}
+
+
+def test_parse_spec_asks_to_list_with_a_question_mark():
+    avail = ["providers", "skills", "memory", "profiles", "tasks"]
+    spec = ih.parse_spec("5?", avail, _catalog_fixture())
+    assert spec.listing == ["tasks"] and spec.categories == ["tasks"]
+
+
+@pytest.mark.parametrize("bad", ["9", "wibble", "1[9]", "1[all,none]"])
+def test_parse_spec_rejects_what_it_cannot_interpret(bad):
+    avail = ["providers", "skills", "memory"]
+    with pytest.raises(ih.SpecError):
+        ih.parse_spec(bad, avail, _catalog_fixture())
+
+
+def test_menu_lists_item_ids_inline_so_a_single_answer_is_possible():
+    avail = ["providers", "tasks"]
+    lines = []
+    ih._prompt_selection(avail, lines.append, lambda _t: "", _catalog_fixture())
+    rendered = "\n".join(lines)
+    # The numbers a user must type are on screen BEFORE they answer.
+    assert "1:deepseek" in rendered and "2:gemini" in rendered
+    assert 'e.g. "1,2"' in rendered
+    # A catalog shorter than the preview width must not print a negative count.
+    assert "(+-" not in rendered and "+ more" not in rendered
+
+
+def test_menu_reasks_instead_of_silently_importing_nothing():
+    avail = ["providers", "tasks"]
+    answers = iter(["wibble", "1"])
+    lines = []
+    spec = ih._prompt_selection(avail, lines.append, lambda _t: next(answers),
+                                _catalog_fixture())
+    assert spec.categories == ["providers"]
+    assert any("I don't understand" in ln for ln in lines)
+
+
+def test_menu_lists_a_category_when_asked_with_a_question_mark():
+    avail = ["providers", "tasks"]
+    answers = iter(["1?", "2"])
+    lines = []
+    spec = ih._prompt_selection(avail, lines.append, lambda _t: next(answers),
+                                _catalog_fixture())
+    rendered = "\n".join(lines)
+    assert "1. deepseek" in rendered and "3. nous" in rendered
+    assert spec.categories == ["tasks"]
+
+
+def test_spec_expression_imports_only_what_it_names(rich):
+    """End-to-end: the one expression the prompt collects reaches the importer."""
+    ih.run_import(print_fn=lambda *a, **k: None, prompt_fn=lambda _t: "1[1]", ask=True)
+    auth = json.loads((rich["numbers"] / "auth.json").read_text(encoding="utf-8"))
+    assert "deepseek" in auth["credential_pool"]      # category 1, item 1
+    assert not (rich["numbers"] / "skills" / "software-development" / "my-tool").exists()
+
+
+def test_spec_flag_drives_the_importer_without_a_prompt(rich):
+    """`import-hermes --spec ...` uses the same grammar, non-interactively."""
+    rc = ih.main(["--spec", "1[1]"])
+    assert rc == 0
+    auth = json.loads((rich["numbers"] / "auth.json").read_text(encoding="utf-8"))
+    assert "deepseek" in auth["credential_pool"]
+    assert auth["credential_pool"]["anthropic"] == [{"k": 1}]
