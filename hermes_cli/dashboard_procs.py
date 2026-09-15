@@ -28,6 +28,9 @@ def _m():
 def _scan_dashboard_processes(
     *,
     exclude_pids: set[int] | None = None,
+    # NUMBERS 21:4-9 fork addition (logged: hermes-patches.md P9): scope the
+    # scan to this install -- see the filter at the end of this function.
+    own_home: str | None = None,
 ) -> list[tuple[int, str]]:
     """Return matching ``dashboard``/``serve`` processes with their cmdlines.
 
@@ -168,6 +171,26 @@ def _scan_dashboard_processes(
     except Exception:
         pass  # ledger unavailable → scan-only behavior, exactly as before
 
+    if own_home:
+        # NUMBERS 21:4-9 fork addition (logged: hermes-patches.md P9): two
+        # installs share one process table. Only OUR backends may be stopped,
+        # listed or attached to -- a cmdline naming "hermes dashboard" names a
+        # product, never an install. Must run AFTER the ledger augmentation
+        # above, or a ledger-registered backend of the other install slips in
+        # unfiltered. Costs one process-env read per candidate, and is skipped
+        # entirely when the caller passes no home.
+        try:
+            dashboard_processes = [
+                (pid, cmd)
+                for pid, cmd, _home in _filter_processes_by_home(
+                    [(pid, cmd, _hermes_home_for_pid(pid))
+                     for pid, cmd in dashboard_processes],
+                    own_home=own_home,
+                )
+            ]
+        except Exception:
+            pass  # best-effort: a failed lookup must not hide a live backend
+
     return dashboard_processes
 
 
@@ -188,6 +211,76 @@ def _hermes_home_for_pid(pid: int) -> str | None:
     for part in raw.split(b"\x00"):
         if part.startswith(b"HERMES_HOME="):
             return part.split(b"=", 1)[1].decode("utf-8", errors="replace") or None
+    return None
+
+
+def _filter_processes_by_home(
+    procs: list[tuple[int, str, str | None]],
+    *,
+    own_home: str,
+) -> list[tuple[int, str, str | None]]:
+    """Keep only processes this install owns.
+
+    Each entry is ``(pid, cmdline, hermes_home)``. A process whose home is
+    readable and different belongs to another install -- it must not be stopped,
+    reported as ours, or attached to. An unreadable home (``None``/empty) stays
+    eligible: narrowing the set to "provably ours" would silently stop reaping
+    stale backends on machines where process-env reads are denied, which is the
+    frontend/backend-mismatch bug the reap exists to fix.
+
+    An empty *own_home* disables the filter entirely -- the caller opts in, so a
+    home that cannot be resolved never widens or narrows the set by accident.
+    """
+    own_key = _normalized_home_for_compare(own_home) if own_home else ""
+    if not own_key:
+        return list(procs)
+    kept: list[tuple[int, str, str | None]] = []
+    for pid, cmd, home in procs:
+        if home and _normalized_home_for_compare(home) != own_key:
+            continue
+        kept.append((pid, cmd, home))
+    return kept
+
+
+def _probe_host(host: str | None) -> str:
+    """Map a wildcard bind to a loopback address (mirrors main's probe host)."""
+    normalized = (host or "127.0.0.1").strip().strip("[]")
+    if normalized in {"", "0.0.0.0", "::"}:
+        return "127.0.0.1"
+    return normalized
+
+
+def _dashboard_listener_home(host: str, port: int) -> str | None:
+    """HERMES_HOME of the process listening on host:port, or None if unknown.
+
+    The launch path asks this before it attaches to an "already running" server:
+    a listener proves *a* dashboard is up, never *whose*, and two installs on one
+    machine share the port namespace. Best-effort at every step -- any failure
+    returns None, which callers treat as "cannot tell" (and then fall back to
+    upstream behaviour rather than blocking a launch).
+    """
+    try:
+        import psutil
+
+        conns = psutil.net_connections(kind="inet")
+    except Exception:
+        return None
+
+    wanted_host = _probe_host(host)
+    for conn in conns:
+        try:
+            if conn.status != psutil.CONN_LISTEN or conn.laddr.port != port:
+                continue
+            if conn.laddr.ip not in ("0.0.0.0", "::", wanted_host):
+                continue
+            pid = conn.pid
+        except Exception:
+            continue
+        if not pid:
+            continue
+        home = _hermes_home_for_pid(int(pid))
+        if home:
+            return home
     return None
 
 

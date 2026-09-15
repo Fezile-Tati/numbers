@@ -8851,12 +8851,41 @@ def cmd_gui(args: argparse.Namespace):
 # module-level __getattr__ above so callers and test monkeypatches on
 # hermes_cli.main.<name> keep resolving unchanged.
 
+def _own_dashboard_home() -> str | None:
+    """This install's HERMES_HOME root, for scoping dashboard process work.
+
+    NUMBERS 21:4-9 fork addition (logged: hermes-patches.md P9): a second
+    Hermes/NUMBERS install on the same machine runs its own dashboards and
+    serve backends, and they are not ours to stop, list or attach to.
+    ``get_default_hermes_root()`` strips a trailing ``profiles/<name>``, so a
+    profile launch still matches its install's root. ``None`` means "cannot
+    tell" -- callers then fall back to the upstream (unscoped) behaviour rather
+    than silently reaping nothing.
+    """
+    try:
+        from hermes_constants import get_default_hermes_root
+
+        return str(get_default_hermes_root())
+    except Exception:
+        return None
+
+
 def _find_stale_dashboard_pids(
     *,
     exclude_pids: set[int] | None = None,
 ) -> list[int]:
-    """Return PIDs of stale ``dashboard``/``serve`` processes for update cleanup."""
-    return [pid for pid, _cmd in _self()._scan_dashboard_processes(exclude_pids=exclude_pids)]
+    """Return PIDs of stale ``dashboard``/``serve`` processes for update cleanup.
+
+    Scoped to THIS install's ``HERMES_HOME`` (NUMBERS 21:4-9 fork addition):
+    without the scope, ``numbers dashboard --stop`` (and the post-update reap)
+    killed the stock Hermes dashboard.
+    """
+    return [
+        pid
+        for pid, _cmd in _self()._scan_dashboard_processes(
+            exclude_pids=exclude_pids, own_home=_own_dashboard_home()
+        )
+    ]
 
 
 def _parse_dashboard_runtime(command: str) -> tuple[str, str, int] | None:
@@ -11966,9 +11995,14 @@ def _report_dashboard_status() -> int:
     spawn-ledger augmentation in _scan_dashboard_processes.
     """
     from gateway.status import _pid_exists
+    # NUMBERS 21:4-9: report under this product's name (hermes-patches.md P9).
+    from hermes_cli._parser import _cli_prog_name
 
     live: list[tuple[int, str, str]] = []
-    for pid, command in _self()._scan_dashboard_processes():
+    for pid, command in _self()._scan_dashboard_processes(
+        # NUMBERS 21:4-9: this install's servers only (hermes-patches.md P9).
+        own_home=_own_dashboard_home()
+    ):
         runtime = _parse_dashboard_runtime(command)
         if runtime is None:
             continue
@@ -11980,10 +12014,10 @@ def _report_dashboard_status() -> int:
         live.append((pid, command, mode))
 
     if not live:
-        print("No hermes dashboard or serve processes running.")
+        print(f"No {_cli_prog_name()} dashboard or serve processes running.")
         return 0
 
-    print(f"{len(live)} hermes dashboard/serve process(es) running:")
+    print(f"{len(live)} {_cli_prog_name()} dashboard/serve process(es) running:")
     for pid, command, mode in live:
         print(f"    PID {pid} [{mode}]: {command}")
     return len(live)
@@ -12359,7 +12393,36 @@ def cmd_dashboard(args):
     ):
         url = f"http://{args.host or '127.0.0.1'}:{args.port}/?profile={_launch_profile}"
         if _dashboard_listening(args.host, args.port):
-            print(f"Machine dashboard already running on port {args.port}.")
+            # A listener proves a dashboard is up, never whose. Ports are
+            # machine-wide, so the honest question before attaching is "is that
+            # server OURS?" -- otherwise `hermes dashboard` opens the NUMBERS UI
+            # (or the reverse) and the user has no way to tell. Unknown owner
+            # (unreadable env, non-psutil platform) keeps the upstream behaviour.
+            from hermes_cli._parser import _cli_prog_name
+            from hermes_cli.dashboard_procs import (
+                _dashboard_listener_home,
+                _normalized_home_for_compare,
+            )
+
+            _owner = _dashboard_listener_home(args.host, args.port)
+            try:
+                from hermes_constants import get_default_hermes_root
+                _own = str(get_default_hermes_root())
+            except Exception:
+                _own = ""
+            if _owner and _own and (
+                _normalized_home_for_compare(_owner)
+                != _normalized_home_for_compare(_own)
+            ):
+                print(
+                    f"Port {args.port} is already serving a DIFFERENT install "
+                    f"(HERMES_HOME={_owner})."
+                )
+                print("  Not attaching: that dashboard belongs to another product.")
+                print("  Start this install's dashboard on its own port instead:")
+                print(f"    {_cli_prog_name()} dashboard --port {args.port + 1}")
+                sys.exit(2)
+            print(f"{_cli_prog_name()} dashboard already running on port {args.port}.")
             print(f"  Managing profile '{_launch_profile}': {url}")
             if not args.no_open:
                 try:
