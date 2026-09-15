@@ -16188,6 +16188,24 @@ def _rank_slash_completions(
     commands = [item for item in items if item.get("kind") != "skill"]
     skills = [item for item in items if item.get("kind") == "skill"]
 
+    # NUMBERS 21:4-9 fork addition: keep PINNED_MENU_COMMANDS in the browse
+    # view. The per-kind slice at the end of this function spends its budget in
+    # registry order, so a command registered late never appears on a bare "/"
+    # (/import-hermes was reachable only by typing "/im" first, while /import --
+    # position 19 -- was listed). Browse only: a typed query is relevance, not
+    # a browse, and hoisting there would rank /import-hermes above the exact
+    # /import match. A missing constant (stock checkout) leaves the ordering
+    # exactly as it was.
+    try:
+        from hermes_cli.commands import PINNED_MENU_COMMANDS
+    except Exception:
+        PINNED_MENU_COMMANDS = ()
+    if browsing and PINNED_MENU_COMMANDS:
+        _pinned_names = set(PINNED_MENU_COMMANDS)
+        commands = [item for item in commands if name_of(item) in _pinned_names] + [
+            item for item in commands if name_of(item) not in _pinned_names
+        ]
+
     if browsing:
         skills = [
             item

@@ -434,6 +434,15 @@ COMMAND_REGISTRY: list[CommandDef] = [
 ]
 
 
+# --- NUMBERS 21:4-9 fork addition: slash-menu visibility (logged: hermes-patches.md P7) ---
+# Commands the TUI/desktop slash menu must keep in its BROWSE view. The menu
+# spends `tui_gateway.server._SLASH_COMPLETION_LIMIT` (30) slots in registry
+# order, and these register last, so without this they appear only after the
+# user types a prefix of the name -- i.e. only for people who already know the
+# command exists. Order here is the order they lead the menu in.
+PINNED_MENU_COMMANDS: tuple[str, ...] = ("sign-in", "logout", "reset", "import-hermes")
+
+
 # Used only to distinguish ``mixed`` (subcommands plus free-text) from
 # ``options`` (subcommand list only). A bare ``args_hint`` with no
 # subcommands is always ``text`` — do not add tokens here for that path.
