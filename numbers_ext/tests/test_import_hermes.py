@@ -305,3 +305,28 @@ def test_no_item_catalog_ever_lists_chat_sessions(rich):
     for key in ih._CAT_ORDER:
         ids = [i for i, _l in ih.list_items(key, rich["numbers"], rich["hermes"], src)]
         assert not (set(ids) & ih._HISTORY_NAMES)
+
+
+def test_all_and_none_are_explicit_choices():
+    avail = ["providers", "skills", "env"]          # env is the advanced one
+    sel = lambda answer: ih._prompt_selection(avail, lambda *a, **k: None,
+                                              lambda _t: answer)
+    # 'all' means every listed category, advanced ones included -- otherwise
+    # the menu would promise more than it delivers.
+    for answer in ("a", "all", "ALL", " all "):
+        assert sel(answer) == avail
+    for answer in ("n", "none", "no", "skip"):
+        assert sel(answer) == []
+    # Enter still means the recommended set, which excludes advanced.
+    assert sel("") == ["providers", "skills"]
+
+
+def test_item_prompt_offers_all_and_none():
+    items = [("alpha", "alpha"), ("beta", "beta")]
+    lines = []
+    pick = lambda answer: ih._prompt_items("skills", items, lines.append,
+                                           lambda _t: answer)
+    assert pick("a") is None and pick("all") is None and pick("") is None
+    assert pick("n") == set() and pick("none") == set()
+    rendered = "\n".join(lines)
+    assert "a. All 2" in rendered and "n. None" in rendered

@@ -828,13 +828,19 @@ def _prompt_selection(avail: List[str], print_fn: Callable, prompt_fn: Callable)
         meta = _CAT[key]
         tag = "" if meta["advanced"] else "  (recommended)"
         print_fn(f"  {i}. {meta['label']}{tag} - {meta['summary']}")
+    # Spelled out as menu entries of their own: "'all' / 'none' also work"
+    # tacked onto the end of a long prompt line was easy to read past.
+    print_fn(f"  a. All - every category listed above (1-{len(avail)})")
+    print_fn("  n. None - import nothing")
     print_fn("")
     raw = (prompt_fn(
-        "Press Enter for the recommended set, or type numbers separated by "
-        "commas (e.g. 1,3,5). 'all' / 'none' also work: ") or "").strip().lower()
-    if raw in ("", "y", "yes", "all", "recommended"):
+        "Enter = recommended, 'a' = all, 'n' = none, or numbers "
+        "(e.g. 1,3,5): ") or "").strip().lower()
+    if raw in ("", "y", "yes", "recommended", "r"):
         return _recommended(avail)
-    if raw in ("n", "no", "none"):
+    if raw in ("a", "all", "everything"):
+        return list(avail)
+    if raw in ("n", "no", "none", "q", "quit", "skip"):
         return []
     picks: List[str] = []
     # Accept commas and/or spaces (and mixed): "1,3,5", "1 3 5", "1, 3 5".
@@ -864,12 +870,13 @@ def _prompt_items(key: str, items: List[tuple], print_fn: Callable,
     print_fn(f"  {label} - pick the ones you want:")
     for i, (_id, text) in enumerate(items, 1):
         print_fn(f"    {i}. {text}")
+    print_fn(f"    a. All {len(items)}")
+    print_fn(f"    n. None - skip {label.lower()}")
     raw = (prompt_fn(
-        f"  Press Enter for all {len(items)}, or type numbers "
-        f"(e.g. 1,3): ") or "").strip().lower()
-    if raw in ("", "a", "all"):
+        "  Enter = all, 'n' = none, or numbers (e.g. 1,3): ") or "").strip().lower()
+    if raw in ("", "a", "all", "y", "yes", "everything"):
         return None
-    if raw in ("n", "no", "none"):
+    if raw in ("n", "no", "none", "q", "quit", "skip"):
         return set()
     chosen: set = set()
     for tok in re.split(r"[,\s]+", raw):
