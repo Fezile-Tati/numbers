@@ -804,3 +804,29 @@ class TestValidateRequestedModelNousPortalRecommendations:
             result = validate_requested_model("inclusionai/ling-2.6-flash", "nous")
         mock_portal.assert_not_called()
         assert result["accepted"] is True
+
+
+# -- validate — provider aliases must never replace canonical ids -------------
+
+class TestProviderAliasNeverReplacesCanonicalId:
+    """DeepSeek's live listing carries the alias `deepseek-flash` next to the
+    first-class `deepseek-v4-flash`, and can lag a rollout and omit the
+    canonical id entirely. get_close_matches then rewrote the user's
+    canonical id into the provider-side alias (0.93 similarity), which got
+    SAVED to config.yaml -- where every name-keyed lookup (metadata, pricing,
+    capabilities) misses it. Precedent: the codex `-900k` and OpenRouter
+    `:nitro` carve-outs in the same function."""
+
+    def test_canonical_id_is_never_auto_corrected_to_the_alias(self):
+        result = _validate("deepseek-v4-flash", "deepseek",
+                           api_models=["deepseek-v4-pro", "deepseek-flash"],
+                           api_key="sk-test")
+        assert result["accepted"] is True
+        assert result.get("corrected_model") is None
+        assert "Auto-corrected" not in (result.get("message") or "")
+
+    def test_a_real_typo_still_auto_corrects(self):
+        result = _validate("deepseek-v4-flsh", "deepseek",
+                           api_models=["deepseek-v4-pro", "deepseek-v4-flash", "deepseek-flash"],
+                           api_key="sk-test")
+        assert result.get("corrected_model") == "deepseek-v4-flash"

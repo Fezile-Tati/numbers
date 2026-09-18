@@ -7622,8 +7622,23 @@ def validate_requested_model(
             # listing (e.g. Z.AI Pro/Max plans can use glm-5 on coding
             # endpoints even though it's not in /models).  Warn but allow.
 
-            # Auto-correct if the top match is very similar (e.g. typo)
-            auto = get_close_matches(requested_for_lookup, api_models, n=1, cutoff=0.9)
+            # ...but never "correct" a name Hermes' own catalog ships for
+            # this provider.  DeepSeek's live listing carries the alias
+            # `deepseek-flash` next to the first-class `deepseek-v4-flash`
+            # (and can omit the canonical id during a rollout), so
+            # get_close_matches would rewrite a canonical id into an alias
+            # that every name-keyed lookup then misses -- and it gets
+            # SAVED to config that way.  Same carve-out as the codex
+            # `-900k` and OpenRouter `:nitro` guards above: fall through
+            # to the curated-catalog acceptance below instead.
+            in_curated_catalog = _model_in_provider_catalog(
+                requested_for_lookup.lower(), _provider_keys(normalized)
+            )
+            auto = (
+                []
+                if in_curated_catalog
+                else get_close_matches(requested_for_lookup, api_models, n=1, cutoff=0.9)
+            )
             if auto:
                 corrected = _with_preset_suffix(auto[0])
                 return {
