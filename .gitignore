@@ -224,7 +224,3 @@ native/fts5_cjk/*.so
 # PyInstaller work + dist tree for the vendored NUMBERS runtime
 # (scripts/build_numbers_runtime.ps1 in the pray repo regenerates it)
 /build_numbers_runtime/
-
-# Zero-byte droppings from mistyped redirects
-/active-session-file
-'
