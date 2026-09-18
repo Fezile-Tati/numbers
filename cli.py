@@ -13124,6 +13124,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             self._handle_voice_command(cmd_original)
         elif canonical == "wake":
             self._handle_wake_command(cmd_original)
+        # NUMBERS-FORK-BEGIN: cli-dispatch
         elif canonical == "sign-in":
             self._handle_sign_in_command(cmd_original)
         elif canonical == "logout":
@@ -13132,6 +13133,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             self._handle_reset_command(cmd_original)
         elif canonical == "import-hermes":
             self._handle_import_hermes_command(cmd_original)
+        # NUMBERS-FORK-END: cli-dispatch
 
         elif canonical == "busy":
             self._handle_busy_command(cmd_original)
@@ -21189,7 +21191,9 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                             # command and return to the prompt, NOT exit the entire
                             # session. Without this guard a KeyboardInterrupt unwinds
                             # to the outer prompt_toolkit loop and the session dies.
-                            _cprint("\n[dim]Command interrupted.[/dim]")
+                            # _cprint renders ANSI, not Rich: "[dim]...[/dim]"
+                            # printed the literal tags at the user.
+                            _cprint(f"\n{_DIM}Command interrupted.{_RST}")
                             continue
                         # A slash handler may set a one-shot pending seed (e.g.
                         # /blueprint <name>) to be run as the next agent turn.

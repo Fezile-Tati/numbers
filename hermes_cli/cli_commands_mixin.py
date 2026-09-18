@@ -4159,6 +4159,7 @@ class CLICommandsMixin:
             _cprint(f"Unknown wake subcommand: {subcommand}")
             _cprint("Usage: /wake [on|off|status]")
 
+    # NUMBERS-FORK-BEGIN: mixin-handlers
     # --- NUMBERS 21:4-9 fork handlers (numbers_ext; see hermes-patches.md P3)
 
     def _handle_sign_in_command(self, command: str) -> None:
@@ -4166,17 +4167,28 @@ class CLICommandsMixin:
         from cli import _cprint
         from numbers_ext.device_auth import run_sign_in
 
-        run_sign_in(print_fn=_cprint, prompt_fn=self._numbers_prompt)
+        try:
+            run_sign_in(print_fn=_cprint, prompt_fn=self._numbers_prompt)
+        except (EOFError, KeyboardInterrupt):
+            _cprint("Sign-in cancelled.")
 
     def _handle_logout_command(self, command: str) -> None:
         """Handle /logout -- revoke and clear the Angel token."""
         from cli import _cprint
         from numbers_ext.device_auth import run_logout
 
-        run_logout(print_fn=_cprint)
+        try:
+            run_logout(print_fn=_cprint)
+        except (EOFError, KeyboardInterrupt):
+            _cprint("Logout cancelled.")
 
     def _handle_reset_command(self, command: str) -> None:
-        """Handle /reset -- factory reset (conversations, memory, skills).
+        """Handle /reset -- two levels: light, and a full factory reset.
+
+        The light level keeps providers, API keys and settings; the full one
+        erases them too. Users reported the single old level as broken ("after
+        resetting, NUMBERS still recalls my provider") -- it was working as
+        designed, and the missing thing was the choice.
 
         Confirmation goes through the prompt_toolkit modal, NOT stdin. Slash
         commands are dispatched from the process_loop daemon thread, where any
@@ -4185,8 +4197,9 @@ class CLICommandsMixin:
         already running" and "Press ENTER to continue...".
         """
         from cli import _cprint
-        from numbers_ext.reset import (RESET_CHOICES, RESET_DETAIL,
-                                       describe_reset, perform_reset, run_reset)
+        from numbers_ext.reset import (FULL_RESET_CONFIRM, RESET_CHOICES,
+                                       RESET_DETAIL, describe_reset,
+                                       perform_reset, run_reset)
 
         modal = getattr(self, "_prompt_text_input_modal", None)
         if modal is None:  # no TUI running (tests, piped stdin): plain prompt
@@ -4194,14 +4207,26 @@ class CLICommandsMixin:
                 self._numbers_exit_after_reset()
             return
 
-        for line in describe_reset():
-            _cprint(line)
-        choice = modal(title="Factory reset", detail=RESET_DETAIL,
+        choice = modal(title="Reset NUMBERS", detail=RESET_DETAIL,
                        choices=RESET_CHOICES)
-        if choice != "reset":  # None == cancelled or timed out
+        if choice not in ("light", "full"):  # None == cancelled or timed out
             _cprint("Cancelled - nothing was erased.")
             return
-        if perform_reset(print_fn=_cprint):
+        full = choice == "full"
+        # The erase list is printed AFTER the choice, so it describes the level
+        # actually picked rather than both at once.
+        for line in describe_reset(full):
+            _cprint(line)
+        if full:
+            # Erasing providers and API keys is the one step here that costs
+            # real work to undo, so it is confirmed a second time -- this time
+            # against the list the user has just read.
+            if modal(title="Erase providers and API keys?",
+                     detail=RESET_DETAIL,
+                     choices=FULL_RESET_CONFIRM) != "full":
+                _cprint("Cancelled - nothing was erased.")
+                return
+        if perform_reset(print_fn=_cprint, full=full):
             self._numbers_exit_after_reset()
 
     def _handle_import_hermes_command(self, command: str) -> None:
@@ -4216,7 +4241,7 @@ class CLICommandsMixin:
         try:
             run_import_command(print_fn=_cprint, prompt_fn=self._numbers_prompt)
         except (EOFError, KeyboardInterrupt):
-            _cprint("[yellow]Import cancelled.[/]")
+            _cprint("Import cancelled.")
 
     def _numbers_prompt(self, text: str) -> str:
         """Read one line from the user without breaking the TUI.
@@ -4246,7 +4271,7 @@ class CLICommandsMixin:
         import os
 
         os._exit(0)  # noqa: PLR1722 -- immediate, post-VACUUM; nothing to flush
-
+    # NUMBERS-FORK-END: mixin-handlers
 
     def _persist_wake_word_enabled(self, enabled: bool):
         """Save ``wake_word.enabled`` so the /wake toggle sticks for future sessions."""

@@ -94,6 +94,17 @@ def test_create_rejects_unknown_scope(hub, signed_in_home):
     assert all(m != "POST" for m, _, _ in _FakeHub.calls)
 
 
+def test_create_accepts_the_content_service_scopes(hub, signed_in_home):
+    """The server provisions stories/blogs/bible-notes scopes; the CLI must not
+    refuse to request the same set, or MCP writes 403 with no way to fix it."""
+    for scope in ("blogs:write", "bible-notes:read", "bible-notes:write", "blogs:read"):
+        _FakeHub.calls = []
+        rc = tk.cmd_create("laptop", [scope], print_fn=lambda *a, **k: None)
+        assert rc == 0, f"{scope} was refused by the client allow-list"
+        method, _, body = _FakeHub.calls[-1]
+        assert method == "POST" and body.get("scopes") == [scope]
+
+
 def test_rename_sends_patch(hub, signed_in_home):
     rc = tk.cmd_rename("id-1", "renamed", print_fn=lambda *a, **k: None)
     assert rc == 0

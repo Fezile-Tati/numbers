@@ -96,6 +96,43 @@ def test_logout_clears_token_and_env(hub, marked_home):
     assert "OTHER=1" in env
 
 
+def test_logout_clears_locally_even_when_the_hub_is_down(marked_home):
+    """A logout must never leave the token on disk because the server happened
+    to be unreachable -- "still signed in because Intersession was down" is the
+    one outcome /logout cannot produce."""
+    (marked_home / "agent-token").write_text("tok-abc")
+    (marked_home / ".env").write_text("NUMBERS_AGENT_TOKEN=tok-abc\nOTHER=1\n")
+    out = []
+    da.run_logout(print_fn=lambda *a, **k: out.append(" ".join(map(str, a))),
+                  hub_base="http://127.0.0.1:1", revoke=True)
+    assert not (marked_home / "agent-token").exists()
+    assert "NUMBERS_AGENT_TOKEN" not in (marked_home / ".env").read_text()
+    screen = "\n".join(out)
+    assert "Signed out on this computer." in screen
+    assert "still active on your account" in screen
+    # The old wording pasted the socket error into the warning.
+    for noise in ("WinError", "Errno", "actively refused", "Traceback"):
+        assert noise not in screen
+
+
+def test_logout_when_hub_reachable_says_plain_signed_out(hub, marked_home, monkeypatch):
+    (marked_home / "agent-token").write_text("tok-abc")
+    monkeypatch.setattr(da, "_post", lambda *a, **k: {"status": "revoked"})
+    out = []
+    da.run_logout(print_fn=lambda *a, **k: out.append(" ".join(map(str, a))),
+                  hub_base=hub, revoke=True)
+    screen = "\n".join(out)
+    assert "Signed out." in screen
+    assert "still active on your account" not in screen
+
+
+def test_logout_when_not_signed_in(marked_home):
+    out = []
+    da.run_logout(print_fn=lambda *a, **k: out.append(" ".join(map(str, a))),
+                  hub_base="http://127.0.0.1:1", revoke=True)
+    assert "You were not signed in." in "\n".join(out)
+
+
 def test_exchange_failure_no_write(hub, marked_home, monkeypatch):
     def _boom(*a, **k):
         raise da.AuthError("HTTP 401: unauthorized")
@@ -111,12 +148,67 @@ def test_sign_in_unreachable_hub_prints_not_raises(marked_home, monkeypatch):
     exception (the "/sign-in does nothing" bug)."""
     monkeypatch.setattr(da, "_prompt_impl", lambda _text: "CODE1234")
     out = []
-    # Port 1 is not listening → ConnectionRefusedError inside urlopen.
+    # Port 1 is not listening → the pre-flight probe fails.
     result = da.run_sign_in(print_fn=lambda *a, **k: out.append(" ".join(map(str, a))),
                             hub_base="http://127.0.0.1:1", open_browser=False)
     assert result is None
-    assert any("Could not reach Intersession" in line for line in out)
+    screen = "\n".join(out)
+    assert "NUMBERS could not reach Intersession." in screen
+    assert "http://127.0.0.1:1" in screen  # names the address it tried
+    assert "start the Intersession app" in screen  # and the way out
     assert not (marked_home / "agent-token").exists()
+
+
+def test_sign_in_unreachable_hub_says_nothing_about_winerrors(marked_home, monkeypatch):
+    """The failure screen is for a person, not a stack trace.
+
+    The reported bug pasted "[WinError 10061] No connection could be made
+    because the target machine actively refused it" at the user; none of that
+    tells them anything they can act on.
+    """
+    monkeypatch.setattr(da, "_prompt_impl", lambda _text: "CODE1234")
+    out = []
+    da.run_sign_in(print_fn=lambda *a, **k: out.append(" ".join(map(str, a))),
+                   hub_base="http://127.0.0.1:1", open_browser=False)
+    screen = "\n".join(out)
+    for noise in ("WinError", "Errno", "urlopen", "Traceback", "actively refused",
+                  "ConnectionRefused"):
+        assert noise not in screen, f"raw error text leaked: {noise}"
+    # ANSI escapes, never Rich markup (cli._cprint does not parse Rich tags).
+    for tag in ("[red]", "[/]", "[bold red]", "[dim]", "[yellow]"):
+        assert tag not in screen
+
+
+def test_sign_in_does_not_open_a_browser_when_hub_is_down(marked_home, monkeypatch):
+    """No flow is started that cannot be finished: a dead hub means no browser
+    window and no code prompt."""
+    opened, prompted = [], []
+    monkeypatch.setattr(da.webbrowser, "open", lambda url: opened.append(url))
+    monkeypatch.setattr(da, "_prompt_impl", lambda text: prompted.append(text) or "X")
+    da.run_sign_in(print_fn=lambda *a, **k: None,
+                   hub_base="http://127.0.0.1:1", open_browser=True)
+    assert opened == []
+    assert prompted == []
+
+
+def test_hub_reachable_reports_a_listening_socket():
+    import socket as _s
+
+    srv = _s.socket()
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(1)
+    try:
+        ok, tls = da._hub_reachable(f"http://127.0.0.1:{srv.getsockname()[1]}",
+                                    timeout=2)
+        assert ok is True and tls is False
+    finally:
+        srv.close()
+
+
+def test_origin_strips_the_api_path():
+    assert da._origin(
+        "https://127.0.0.1:3000/api/settings/agent-tokens/device"
+    ) == "https://127.0.0.1:3000"
 
 
 def test_ssl_ctx_relaxes_only_for_loopback():

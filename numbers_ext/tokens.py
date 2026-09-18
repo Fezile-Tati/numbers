@@ -24,16 +24,23 @@ import urllib.request
 from typing import Optional
 
 from numbers_ext import device_auth, home
+from numbers_ext.ansi import BOLD_GREEN, RED, RST, YELLOW
 
 _BASE_PATH = "/api/settings/agent-tokens"
 
 # Same closed scope set the server allows; kept here only for a friendlier
-# client-side error than a round-trip 400.
-ALLOWED_SCOPES = ("stories:read", "stories:write")
+# client-side error than a round-trip 400. Keep in step with
+# cmd/server/numbers_token.go numbersTokenScopes: a scope the server grants but
+# this list rejects leaves MCP writes 403 with nothing the user can do about it.
+ALLOWED_SCOPES = (
+    "stories:read", "stories:write",
+    "blogs:read", "blogs:write",
+    "bible-notes:read", "bible-notes:write",
+)
 
 
 def _hub_base() -> str:
-    return (os.environ.get("NUMBERS_HUB_URL") or device_auth.DEFAULT_HUB).rstrip("/")
+    return device_auth._hub_base().rstrip("/")
 
 
 def _read_token() -> str:
@@ -74,7 +81,7 @@ def _request(method: str, path: str, token: str, body: Optional[dict] = None,
 def _require_token(print_fn) -> Optional[str]:
     token = _read_token()
     if not token:
-        print_fn("[yellow]You are not signed in.[/] Run `numbers signin` first.")
+        print_fn(f"{YELLOW}You are not signed in.{RST} Run /sign-in first.")
         return None
     return token
 
@@ -102,15 +109,15 @@ def cmd_create(name: str, scopes: list, print_fn=print) -> int:
         return 1
     for s in scopes:
         if s not in ALLOWED_SCOPES:
-            print_fn(f"[red]Unknown scope:[/] {s}  (allowed: {', '.join(ALLOWED_SCOPES)})")
+            print_fn(f"{RED}Unknown scope:{RST} {s}  (allowed: {', '.join(ALLOWED_SCOPES)})")
             return 2
     payload = {"name": name or "agent", "scopes": scopes or ["stories:read"]}
     data = _request("POST", _BASE_PATH, token, payload)
     plaintext = data.get("token")
     if not plaintext:
-        print_fn("[red]Server did not return a token.[/]")
+        print_fn(f"{RED}Server did not return a token.{RST}")
         return 1
-    print_fn("[bold green]Token created.[/] Copy it now — it is shown only once:")
+    print_fn(f"{BOLD_GREEN}Token created.{RST} Copy it now — it is shown only once:")
     print_fn(f"\n    {plaintext}\n")
     print_fn(data.get("warning") or "Store it somewhere safe; it cannot be shown again.")
     return 0
@@ -121,7 +128,7 @@ def cmd_rename(token_id: str, name: str, print_fn=print) -> int:
     if not token:
         return 1
     _request("PATCH", f"{_BASE_PATH}/{token_id}", token, {"name": name})
-    print_fn(f"[bold green]Renamed[/] {token_id} -> {name}")
+    print_fn(f"{BOLD_GREEN}Renamed{RST} {token_id} -> {name}")
     return 0
 
 
@@ -135,7 +142,7 @@ def cmd_revoke(token_id: str, yes: bool, prompt_fn=input, print_fn=print) -> int
             print_fn("Cancelled.")
             return 0
     _request("DELETE", f"{_BASE_PATH}/{token_id}", token)
-    print_fn(f"[bold green]Revoked[/] {token_id}")
+    print_fn(f"{BOLD_GREEN}Revoked{RST} {token_id}")
     return 0
 
 

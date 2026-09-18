@@ -7,7 +7,8 @@ import:
 
   * READ-ONLY on the Hermes side — never writes to the Hermes home.
   * Every write stays under NUMBERS_HOME (validated via numbers_ext.home).
-  * The user picks categories (interactive) or scripts them (--only/--all/…).
+  * Categories are all-or-nothing: "Skills -> import all", "Tools -> import
+    all". Picked interactively, or scripted with --only/--all/--exclude.
   * Offered once on first run (guard file); on demand via `numbers import-hermes`.
 
 Never overwrites Numbers-owned identity: `numbers-home.json`, `skins/`, `bin/`, and
@@ -248,8 +249,7 @@ def _copytree_merge(src: Path, dst: Path, skip_root: frozenset = frozenset()) ->
 # Category: providers (auth.json) + model seed
 # --------------------------------------------------------------------------
 
-def _merge_providers(numbers_home: Path, src_homes: List[Path],
-                     picks: Optional[set] = None) -> List[str]:
+def _merge_providers(numbers_home: Path, src_homes: List[Path]) -> List[str]:
     """Merge provider creds from Hermes homes into Numbers auth.json (existing win)."""
     dst_path = numbers_home / "auth.json"
     dst = _read_json(dst_path)
@@ -261,13 +261,12 @@ def _merge_providers(numbers_home: Path, src_homes: List[Path],
     for h in src_homes:
         src = read_hermes_providers(h)
         for name, entry in (src["credential_pool"] or {}).items():
-            if name in dst["credential_pool"] or not _wanted(picks, name):
+            if name in dst["credential_pool"]:
                 continue
             dst["credential_pool"][name] = entry
             added.append(name)
         for name, entry in (src["providers"] or {}).items():
-            if _wanted(picks, name):
-                dst["providers"].setdefault(name, entry)
+            dst["providers"].setdefault(name, entry)
 
     if added:
         dst["updated_at"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -301,7 +300,7 @@ def _seed_model_if_empty(numbers_home: Path, src_homes: List[Path]) -> Optional[
 _ENV_SOURCE_RE = re.compile(r"^env:(.+)$")
 
 
-def _referenced_env_vars(hermes_home: Path, picks: Optional[set] = None) -> List[str]:
+def _referenced_env_vars(hermes_home: Path) -> List[str]:
     """Env-var names that a Hermes home's credentials resolve their key from.
 
     Each credential_pool entry may carry ``source: "env:VAR"`` — the actual key
@@ -311,8 +310,6 @@ def _referenced_env_vars(hermes_home: Path, picks: Optional[set] = None) -> List
     names: List[str] = []
     seen = set()
     for cred_name, entries in (prov.get("credential_pool") or {}).items():
-        if not _wanted(picks, cred_name):
-            continue
         for e in (entries if isinstance(entries, list) else [entries]):
             if not isinstance(e, dict):
                 continue
@@ -325,8 +322,7 @@ def _referenced_env_vars(hermes_home: Path, picks: Optional[set] = None) -> List
     return names
 
 
-def _import_provider_env_keys(nh: Path, src_homes: List[Path],
-                              picks: Optional[set] = None) -> tuple[List[str], List[str]]:
+def _import_provider_env_keys(nh: Path, src_homes: List[Path]) -> tuple[List[str], List[str]]:
     """Resolve provider key env-vars from Hermes .env(+env) into the Numbers .env.
 
     Returns (written_keys, skipped_denied). App-identity secrets (see
@@ -337,7 +333,7 @@ def _import_provider_env_keys(nh: Path, src_homes: List[Path],
     denied: List[str] = []
     for h in src_homes:
         env_file = _read_env_file(h / ".env")
-        for var in _referenced_env_vars(h, picks):
+        for var in _referenced_env_vars(h):
             if var in _ENV_DENYLIST:
                 if var not in denied:
                     denied.append(var)
@@ -351,11 +347,10 @@ def _import_provider_env_keys(nh: Path, src_homes: List[Path],
     return written, denied
 
 
-def _import_providers(nh: Path, home: Path, src_homes: List[Path],
-                      picks: Optional[set] = None) -> str:
-    added = _merge_providers(nh, src_homes, picks)
+def _import_providers(nh: Path, home: Path, src_homes: List[Path]) -> str:
+    added = _merge_providers(nh, src_homes)
     seeded = _seed_model_if_empty(nh, src_homes)
-    written, denied = _import_provider_env_keys(nh, src_homes, picks)
+    written, denied = _import_provider_env_keys(nh, src_homes)
     parts = []
     parts.append("providers: " + (", ".join(sorted(set(added))) if added else "none new"))
     if written:
@@ -370,15 +365,6 @@ def _import_providers(nh: Path, home: Path, src_homes: List[Path],
 # --------------------------------------------------------------------------
 # Category: skills (with hermes-* → numbers-* rename + dedupe)
 # --------------------------------------------------------------------------
-
-def _wanted(picks: Optional[set], item_id: str) -> bool:
-    """True when this individual item is in scope.
-
-    ``picks is None`` means "the whole category" -- the scripted/recommended
-    path never has to enumerate anything.
-    """
-    return picks is None or item_id in picks
-
 
 def _parse_frontmatter_name(text: str) -> Optional[str]:
     m = re.search(r"(?m)^name:\s*(.+?)\s*$", text)
@@ -439,15 +425,14 @@ def _skill_slugs(home: Path, dst_skills: Path) -> List[tuple]:
     return out
 
 
-def _import_skills(nh: Path, home: Path, picks: Optional[set] = None) -> str:
+def _import_skills(nh: Path, home: Path) -> str:
     src_skills = home / "skills"
     if not src_skills.is_dir():
         return "skills: none"
     dst_skills = nh / "skills"
+    candidates = _skill_slugs(home, dst_skills)
     added: List[str] = []
-    for new_slug, slug, src_dir in _skill_slugs(home, dst_skills):
-        if not _wanted(picks, new_slug):
-            continue
+    for new_slug, slug, src_dir in candidates:
         rel = list(src_dir.relative_to(src_skills).parts)
         if rel:
             rel[-1] = rel[-1].replace("hermes", "numbers") if "hermes" in rel[-1].lower() else rel[-1]
@@ -457,7 +442,13 @@ def _import_skills(nh: Path, home: Path, picks: Optional[set] = None) -> str:
         if new_slug != slug or "hermes" in (dst_dir / "SKILL.md").read_text(encoding="utf-8", errors="ignore").lower():
             _rebrand_skill_md(dst_dir / "SKILL.md", new_slug)
         added.append(new_slug)
-    return f"skills: {len(added)} imported" + (f" ({', '.join(sorted(added)[:6])}{'…' if len(added) > 6 else ''})" if added else "")
+    if added:
+        return f"skills: {len(added)} imported ({', '.join(sorted(added)[:6])}{'…' if len(added) > 6 else ''})"
+    total_src = sum(1 for p in src_skills.rglob("SKILL.md")
+                     if not any(part in {".git", ".github", ".hub", ".archive", "__pycache__"}
+                                for part in p.parent.parts))
+    already = total_src - len(candidates)
+    return f"skills: 0 imported ({already} already present)" if already > 0 else "skills: 0 imported"
 
 
 # --------------------------------------------------------------------------
@@ -470,15 +461,15 @@ _TASK_FILES = ("kanban.db", "projects.db", "todo.json", "verification_evidence.d
 _PERSONA_FILES = ("system_prompt.md", "AGENTS.md", "CLAUDE.md", ".cursorrules", "SOUL.md")
 
 
-def _import_memory(nh: Path, home: Path, picks: Optional[set] = None) -> str:
+def _import_memory(nh: Path, home: Path) -> str:
     done = []
     for name in _MEMORY_DIRS:
         s = home / name
-        if s.is_dir() and _wanted(picks, name) and _copytree_merge(s, nh / name):
+        if s.is_dir() and _copytree_merge(s, nh / name):
             done.append(name + "/")
     for fn in _MEMORY_FILES:
         s = home / fn
-        if s.is_file() and _wanted(picks, fn) and _copy_file(s, nh / fn):
+        if s.is_file() and _copy_file(s, nh / fn):
             done.append(fn)
     return "memory: " + (", ".join(done) if done else "none")
 
@@ -491,11 +482,9 @@ def _profile_names(home: Path) -> List[str]:
                   if p.is_dir() and not p.name.startswith("."))
 
 
-def _import_profiles(nh: Path, home: Path, picks: Optional[set] = None) -> str:
+def _import_profiles(nh: Path, home: Path) -> str:
     names = []
     for name in _profile_names(home):
-        if not _wanted(picks, name):
-            continue
         # skip_root=_HISTORY_NAMES is what keeps past chat sessions out: a
         # profile's sessions/, state.db and checkpoints/ never come across.
         if _copytree_merge(home / "profiles" / name, nh / "profiles" / name,
@@ -504,11 +493,11 @@ def _import_profiles(nh: Path, home: Path, picks: Optional[set] = None) -> str:
     return f"profiles: {len(names)} imported" + (f" ({', '.join(names)})" if names else "")
 
 
-def _import_tasks(nh: Path, home: Path, picks: Optional[set] = None) -> str:
+def _import_tasks(nh: Path, home: Path) -> str:
     done = []
     for fn in _TASK_FILES:
         s = home / fn
-        if s.is_file() and _wanted(picks, fn) and _copy_file(s, nh / fn):
+        if s.is_file() and _copy_file(s, nh / fn):
             done.append(fn)
     return "tasks: " + (", ".join(done) if done else "none")
 
@@ -524,7 +513,7 @@ def _hermes_mcp_servers(home: Path) -> dict:
     return servers if isinstance(servers, dict) else {}
 
 
-def _import_mcp_servers(nh: Path, home: Path, picks: Optional[set] = None) -> List[str]:
+def _import_mcp_servers(nh: Path, home: Path) -> List[str]:
     """Merge the user's MCP servers (their "tools") into the Numbers config.
 
     `mcp_servers` is a Numbers-owned key for the `config` category -- that
@@ -544,7 +533,7 @@ def _import_mcp_servers(nh: Path, home: Path, picks: Optional[set] = None) -> Li
     dst = cfg.get("mcp_servers")
     if not isinstance(dst, dict):
         dst = {}
-    added = [name for name in src if name not in dst and _wanted(picks, "mcp:" + name)]
+    added = [name for name in src if name not in dst]
     if not added:
         return []
     for name in added:
@@ -561,39 +550,37 @@ def _import_mcp_servers(nh: Path, home: Path, picks: Optional[set] = None) -> Li
 _TOOL_DIRS = ("plugins", "desktop-plugins", "platforms")
 
 
-def _import_tools(nh: Path, home: Path, picks: Optional[set] = None) -> str:
+def _import_tools(nh: Path, home: Path) -> str:
     """The `tools` category: MCP servers plus plugin/platform directories."""
     parts = []
-    servers = _import_mcp_servers(nh, home, picks)
+    servers = _import_mcp_servers(nh, home)
     parts.append(f"mcp servers: {', '.join(servers)}" if servers else "mcp servers: none new")
-    dirs = [d for d in _TOOL_DIRS if _wanted(picks, "dir:" + d)]
+    dirs = list(_TOOL_DIRS)
     parts.append(_import_dirs(nh, home, dirs, "plugins"))
     return "; ".join(parts)
 
 
-def _import_dirs(nh: Path, home: Path, dirs: List[str], label: str,
-                 picks: Optional[set] = None) -> str:
+def _import_dirs(nh: Path, home: Path, dirs: List[str], label: str) -> str:
     done = []
     for name in dirs:
         s = home / name
-        if s.is_dir() and any(s.iterdir()) and _wanted(picks, name)                 and _copytree_merge(s, nh / name):
+        if s.is_dir() and any(s.iterdir()) and _copytree_merge(s, nh / name):
             done.append(name + "/")
     return f"{label}: " + (", ".join(done) if done else "none")
 
 
-def _import_persona(nh: Path, home: Path, picks: Optional[set] = None) -> str:
+def _import_persona(nh: Path, home: Path) -> str:
     done = []
     # Every persona file (SOUL.md included) is import-only-if-absent: Numbers
     # ships its own SOUL.md and must never have it silently replaced.
     for fn in _PERSONA_FILES:
         s = home / fn
-        if s.is_file() and not (nh / fn).exists() and _wanted(picks, fn) \
-                and _copy_file(s, nh / fn):
+        if s.is_file() and not (nh / fn).exists() and _copy_file(s, nh / fn):
             done.append(fn)
     return "persona: " + (", ".join(done) if done else "none")
 
 
-def _import_config(nh: Path, home: Path, picks: Optional[set] = None) -> str:
+def _import_config(nh: Path, home: Path) -> str:
     try:
         import yaml
     except Exception:
@@ -606,7 +593,7 @@ def _import_config(nh: Path, home: Path, picks: Optional[set] = None) -> str:
         return "config: skipped (unreadable)"
     added = []
     for k, v in src.items():
-        if k in _BRAND_CONFIG_KEYS or k in dst or not _wanted(picks, k):
+        if k in _BRAND_CONFIG_KEYS or k in dst:
             continue  # keep Numbers branding + never override existing keys
         dst[k] = v
         added.append(k)
@@ -616,7 +603,7 @@ def _import_config(nh: Path, home: Path, picks: Optional[set] = None) -> str:
     return "config: " + (", ".join(added) if added else "nothing new")
 
 
-def _import_env(nh: Path, home: Path, picks: Optional[set] = None) -> str:
+def _import_env(nh: Path, home: Path) -> str:
     src = home / ".env"
     if not src.is_file():
         return "env: none"
@@ -635,7 +622,7 @@ def _import_env(nh: Path, home: Path, picks: Optional[set] = None) -> str:
         if "=" not in ln or ln.lstrip().startswith("#"):
             continue
         key = ln.split("=", 1)[0].strip()
-        if key in _ENV_DENYLIST or key in have or not _wanted(picks, key):
+        if key in _ENV_DENYLIST or key in have:
             continue
         to_add.append(ln)
     if to_add:
@@ -652,7 +639,7 @@ def _import_env(nh: Path, home: Path, picks: Optional[set] = None) -> str:
 
 _CAT: Dict[str, dict] = {
     "providers":  {"label": "Providers",  "advanced": False, "summary": "API keys / provider logins (auth.json)"},
-    "skills":     {"label": "Skills",     "advanced": False, "summary": "your /commands (hermes-* renamed to numbers-*)"},
+    "skills":     {"label": "Skills",     "advanced": False, "summary": "skills you added yourself (hermes-* renamed to numbers-*)"},
     "memory":     {"label": "Memory",     "advanced": False, "summary": "MEMORY.md, USER.md, knowledge, preferences"},
     "profiles":   {"label": "Profiles",   "advanced": False, "summary": "named profiles (without their history)"},
     "tasks":      {"label": "Tasks",      "advanced": False, "summary": "kanban, projects, todo"},
@@ -683,7 +670,7 @@ def available_categories(numbers_home: Path, src_homes: List[Path]) -> List[str]
     # merged the credential names but not their keys — see _import_provider_env_keys).
     if _missing_providers(numbers_home, src_homes) or _missing_provider_keys(numbers_home, src_homes):
         avail.append("providers")
-    if (home / "skills").is_dir():
+    if _skill_slugs(home, numbers_home / "skills"):
         avail.append("skills")
     if any(_has_content(home / n) for n in ("memories", "knowledge", "preferences")) \
             or (home / "MEMORY.md").is_file() or (home / "USER.md").is_file():
@@ -708,30 +695,29 @@ def available_categories(numbers_home: Path, src_homes: List[Path]) -> List[str]
     return [k for k in _CAT_ORDER if k in avail]
 
 
-def _run_category(key: str, nh: Path, home: Path, src_homes: List[Path],
-                  picks: Optional[set] = None) -> str:
+def _run_category(key: str, nh: Path, home: Path, src_homes: List[Path]) -> str:
     if key == "providers":
-        return _import_providers(nh, home, src_homes, picks)
+        return _import_providers(nh, home, src_homes)
     if key == "skills":
-        return _import_skills(nh, home, picks)
+        return _import_skills(nh, home)
     if key == "memory":
-        return _import_memory(nh, home, picks)
+        return _import_memory(nh, home)
     if key == "profiles":
-        return _import_profiles(nh, home, picks)
+        return _import_profiles(nh, home)
     if key == "tasks":
-        return _import_tasks(nh, home, picks)
+        return _import_tasks(nh, home)
     if key == "automation":
-        return _import_dirs(nh, home, ["cron", "hooks"], "automation", picks)
+        return _import_dirs(nh, home, ["cron", "hooks"], "automation")
     if key == "tools":
-        return _import_tools(nh, home, picks)
+        return _import_tools(nh, home)
     if key == "pets":
-        return _import_dirs(nh, home, ["pets"], "pets", picks)
+        return _import_dirs(nh, home, ["pets"], "pets")
     if key == "config":
-        return _import_config(nh, home, picks)
+        return _import_config(nh, home)
     if key == "persona":
-        return _import_persona(nh, home, picks)
+        return _import_persona(nh, home)
     if key == "env":
-        return _import_env(nh, home, picks)
+        return _import_env(nh, home)
     return f"{key}: unknown category"
 
 
@@ -743,9 +729,10 @@ def list_items(key: str, nh: Path, home: Path,
                src_homes: List[Path]) -> List[tuple]:
     """(item_id, label) for everything importable in a category, or [].
 
-    An empty list means "this category is all-or-nothing" -- there is nothing
-    meaningful to tick off one by one, so the caller should not prompt.
-    The ids returned here are exactly what ``_wanted()`` matches against.
+    DESCRIPTIVE ONLY. Categories import whole, so nothing here is selectable;
+    this exists so ``_menu_line`` can show what a category will actually bring
+    in ("Skills  pdf, ocr (+3 more)") instead of a bare, meaningless "(all)".
+    An empty list just means the category has no nameable parts to preview.
     """
     if key == "skills":
         return [(slug, slug) for slug, _old, _d in _skill_slugs(home, nh / "skills")]
@@ -789,13 +776,14 @@ def list_items(key: str, nh: Path, home: Path,
 # --------------------------------------------------------------------------
 
 # --------------------------------------------------------------------------
-# Selection expression: one line picks categories AND individual items
+# Selection: categories only
 #
-# The old flow asked twice -- categories, then a nested per-category item menu
-# -- so the item numbers a user wanted to type did not exist on screen until
-# AFTER the category answer, categories with fewer than two items imported
-# wholesale with no prompt at all, and an unrecognised token was dropped in
-# silence. One expression covers both levels, and a typo is reported.
+# Imports are all-or-nothing per category by design -- "Skills -> import all",
+# "Tools -> import all". The per-item layer that used to live here (an
+# expression language with "1[1,3],4[all]" brackets, plus --items/--spec/
+# --list-items) was where the earlier import attempts went wrong: it could
+# silently import a subset, and it made the common case -- take everything --
+# the hardest thing to express. One answer now picks whole categories.
 # --------------------------------------------------------------------------
 
 _ALL_TOKENS = frozenset({"a", "all", "everything", "*"})
@@ -803,7 +791,7 @@ _NONE_TOKENS = frozenset({"n", "no", "none", "skip", "q", "quit"})
 
 
 class SpecError(ValueError):
-    """A selection expression that cannot be interpreted as written."""
+    """A selection answer that cannot be interpreted as written."""
 
 
 @dataclass(frozen=True)
@@ -811,144 +799,11 @@ class Spec:
     """What one line of user input asked for.
 
     ``categories`` is in MENU order, not typing order, so the import report
-    reads top to bottom like the menu did. ``items`` holds only the categories
-    the user narrowed with ``[...]``; a category missing from it imports
-    everything it has -- precisely the shape ``run_import(selection=, items=)``
-    already takes, so there is no adapter between parser and importer.
-    ``listing`` holds categories asked about with ``?`` (import nothing).
+    reads top to bottom like the menu did. Each listed category imports
+    everything it has -- there is no narrower unit.
     """
 
     categories: List[str] = field(default_factory=list)
-    items: Dict[str, set] = field(default_factory=dict)
-    listing: List[str] = field(default_factory=list)
-
-
-def _split_clauses(raw: str) -> List[str]:
-    """Split on separators that are NOT inside ``[...]``.
-
-    ``1[1,3],5`` is two clauses; ``1[1,3]`` is one. Semicolons and runs of
-    whitespace count as separators too, so the older habit of typing ``1 3``
-    keeps working.
-    """
-    clauses: List[str] = []
-    buf: List[str] = []
-    depth = 0
-    for ch in raw:
-        if ch == "[":
-            depth += 1
-        elif ch == "]":
-            depth = max(0, depth - 1)
-        if depth == 0 and (ch in ",;" or ch.isspace()):
-            clauses.append("".join(buf))
-            buf = []
-            continue
-        buf.append(ch)
-    clauses.append("".join(buf))
-    return [c.strip() for c in clauses if c.strip()]
-
-
-def _parse_item_picks(body: str, key: str, entries: List[tuple]) -> set:
-    """Resolve the inside of ``[...]`` to a set of item ids.
-
-    Accepts the item positions as printed in the catalog, plus item ids,
-    ``all`` and ``none``. ``1[]`` is the explicit "nothing from this category"
-    form; an empty result means the category is skipped, not that it is all.
-    """
-    tokens = [t for t in re.split(r"[,\s]+", body or "") if t]
-    if not tokens:
-        return set()
-    ids = [item_id for item_id, _label in entries]
-    by_id = {item_id.lower(): item_id for item_id in ids}
-    label = _CAT[key]["label"]
-    lowered = [t.lower() for t in tokens]
-    if any(t in _ALL_TOKENS for t in lowered):
-        if len(tokens) > 1:
-            raise SpecError(f"'all' must be the only entry inside {label}[...].")
-        return set(ids)
-    if len(tokens) == 1 and lowered[0] in _NONE_TOKENS:
-        return set()
-    chosen: set = set()
-    for tok, low in zip(tokens, lowered):
-        if low in _ALL_TOKENS or low in _NONE_TOKENS:
-            raise SpecError(f"'{tok}' cannot be combined with other entries.")
-        if tok.isdigit():
-            idx = int(tok) - 1
-            if not 0 <= idx < len(ids):
-                raise SpecError(
-                    f"'{tok}' is not one of {label}'s items (1-{len(ids)})."
-                )
-            chosen.add(ids[idx])
-            continue
-        if low in by_id:
-            chosen.add(by_id[low])
-            continue
-        raise SpecError(f"'{tok}' is not one of {label}'s items.")
-    return chosen
-
-
-def parse_spec(spec: str, avail: List[str],
-               catalog_of: Callable[[str], List[tuple]]) -> Spec:
-    """Parse one selection expression.
-
-    Grammar (case-insensitive; ``[...]`` groups may contain no clause
-    separator):
-
-        ""                     the recommended set (advanced categories out)
-        "a" | "all"            every listed category, everything in each
-        "n" | "none"           nothing
-        "1,4,5"                categories 1, 4 and 5 -- everything in each
-        "1[1,3,4],4[all]"      category 1 items 1/3/4; category 4 all items
-        "1[deepseek,gemini]"   item ids instead of positions
-        "2[]"                  category 2, nothing picked from it
-        "5?"                   list category 5's items (imports nothing)
-
-    Raises :class:`SpecError` for anything else so the caller can re-ask --
-    the previous flow dropped unrecognised tokens and silently imported less
-    than the user asked for.
-    """
-    raw = (spec or "").strip().lower()
-    if raw == "":
-        return Spec(categories=_recommended(avail))
-    if raw in _ALL_TOKENS:
-        return Spec(categories=list(avail))
-    if raw in _NONE_TOKENS:
-        return Spec()
-
-    categories: List[str] = []
-    items: Dict[str, set] = {}
-    listing: List[str] = []
-
-    for clause in _split_clauses(raw):
-        wants_list = clause.endswith("?")
-        body = clause[:-1].strip() if wants_list else clause
-        m = re.fullmatch(r"(\d+)\s*(?:\[([^\]]*)\])?", body)
-        if m:
-            pos = int(m.group(1))
-            if not 1 <= pos <= len(avail):
-                raise SpecError(
-                    f"'{pos}' is not one of the listed categories (1-{len(avail)})."
-                )
-            key = avail[pos - 1]
-        elif body in avail:
-            # Category NAMES still work: they were accepted before this parser
-            # existed, and a name is never ambiguous.
-            key = body
-        else:
-            raise SpecError(f"I don't understand '{clause}'.")
-        if key not in categories:
-            categories.append(key)
-        if wants_list:
-            if key not in listing:
-                listing.append(key)
-            continue
-        bracket = m.group(2) if m else None
-        if bracket is not None:
-            items[key] = _parse_item_picks(bracket, key, catalog_of(key))
-
-    # Menu order, not typing order: the import report then reads top to bottom
-    # like the menu did, however the user ordered their clauses.
-    ordered = [k for k in avail if k in categories]
-    return Spec(categories=ordered, items=items, listing=listing)
 
 
 def _missing_providers(numbers_home: Path, src_homes: List[Path]) -> List[str]:
@@ -985,107 +840,96 @@ def _recommended(avail: List[str]) -> List[str]:
     return [k for k in avail if not _CAT[k]["advanced"]]
 
 
-def _example(avail: List[str], slots: tuple = (1, 4, 5)) -> str:
-    """A worked 'type this, get that' example built from the live menu.
+def parse_exclusions(raw: str, avail: List[str]) -> List[str]:
+    """Parse a flat "leave these out" answer into category keys to exclude.
 
-    Falls back to whatever positions exist, so a two-entry menu reads
-    'e.g. 1,2' rather than pointing at numbers that were never printed.
+    Enter (empty) or 'none' -> exclude nothing, i.e. import everything.
+    'all' -> exclude everything, i.e. import nothing.
+    Otherwise: 1-based category positions, comma/space/semicolon separated,
+    naming what to LEAVE OUT. A non-numeric or out-of-range token raises
+    SpecError so the caller re-asks -- a typo must never silently narrow the
+    import with no message.
     """
-    idx = [i for i in slots if i <= len(avail)] or [1]
-    if len(idx) < 2:
-        idx = list(range(1, min(len(avail), 3) + 1))
-    names = [_CAT[avail[i - 1]]["label"] for i in idx]
-    listed = ", ".join(names[:-1]) + " and " + names[-1] if len(names) > 1 else names[0]
-    return f'e.g. "{",".join(str(i) for i in idx)}" imports {listed}'
+    tokens = [t for t in re.split(r"[,;\s]+", (raw or "").strip()) if t]
+    if not tokens:
+        return []
+    lowered = [t.lower() for t in tokens]
+    if len(tokens) == 1 and lowered[0] in _NONE_TOKENS:
+        return []
+    if len(tokens) == 1 and lowered[0] in _ALL_TOKENS:
+        return list(avail)
+    excluded: List[str] = []
+    for tok, low in zip(tokens, lowered):
+        if low in _ALL_TOKENS or low in _NONE_TOKENS:
+            raise SpecError(f"'{tok}' cannot be combined with other entries.")
+        if not tok.isdigit():
+            raise SpecError(f"'{tok}' is not a category number (1-{len(avail)}).")
+        idx = int(tok) - 1
+        if not 0 <= idx < len(avail):
+            raise SpecError(f"'{tok}' is not one of the categories (1-{len(avail)}).")
+        key = avail[idx]
+        if key not in excluded:
+            excluded.append(key)
+    return excluded
 
 
-def _catalog_line(key: str, pos: int, entries: List[tuple],
-                  per_category: int = 4) -> str:
-    """One menu line: the category plus the item ids a user can name.
+def _menu_line(key: str, pos: int, entries: List[tuple]) -> str:
+    """One line: the category plus what it will actually bring in.
 
-    Printing item ids inline is the point of the one-line design -- the old
-    menu printed item numbers only AFTER the category answer, so the number a
-    user wanted to type did not exist on screen yet.
+    Enumerable categories (skills, tasks, ...) show real item names/count;
+    all-or-nothing categories show their plain-language summary -- never the
+    bare, meaningless "(all)" the old menu printed for both.
     """
     meta = _CAT[key]
-    tag = "" if meta["advanced"] else "  (recommended)"
-    if not entries:
-        detail = "(all)"
+    if entries:
+        names = ", ".join(label or item_id for item_id, label in entries[:4])
+        extra = len(entries) - 4
+        detail = names + (f" (+{extra} more)" if extra > 0 else "")
     else:
-        shown = ", ".join(
-            f"{i}:{item_id}"
-            for i, (item_id, _label) in enumerate(entries[:per_category], 1)
-        )
-        extra = len(entries) - per_category
-        detail = shown + (f"  (+{extra} more - type {pos}? to list)" if extra > 0 else "")
-    return f"  {pos}. {meta['label']}{tag}  {detail}"
+        detail = meta["summary"]
+    return f"  {pos}. {meta['label']:<12} {detail}"
 
 
 def _prompt_selection(avail: List[str], print_fn: Callable, prompt_fn: Callable,
                       catalog_of: Optional[Callable[[str], List[tuple]]] = None) -> Spec:
-    """Print the catalog and read ONE expression.
+    """Print the flat "everything, minus what you exclude" menu and read one answer.
 
-    ``catalog_of`` maps a category key to its ``(item_id, label)`` pairs. When
-    omitted -- unit tests, all-or-nothing callers -- every category renders as
-    "(all)" and the item grammar has nothing to resolve against.
+    ``catalog_of`` maps a category key to its ``(item_id, label)`` pairs, used
+    only to describe each line -- there is no per-item selection here. Most
+    imports are all-or-nothing, so the common case is a bare Enter.
 
-    Re-asks (up to three times) only when the line cannot be parsed: silently
-    importing a subset because a token was dropped is the bug this replaces.
+    Re-asks (up to three times) only when the answer cannot be parsed:
+    silently importing a subset because a token was dropped is the bug this
+    replaces.
     """
     catalog_of = catalog_of or (lambda _key: [])
     print_fn("")
-    print_fn("Select what to import from Hermes:")
+    print_fn("Importing everything from Hermes:")
     for i, key in enumerate(avail, 1):
-        print_fn(_catalog_line(key, i, catalog_of(key)))
-    # Spelled out as menu entries of their own: "'all' / 'none' also work"
-    # tacked onto the end of a long prompt line was easy to read past.
-    print_fn(f"  a. All - every category listed above (1-{len(avail)})")
-    print_fn("  n. None - import nothing")
+        print_fn(_menu_line(key, i, catalog_of(key)))
     print_fn("")
-    # Worked example against this exact menu, so "several at once" is shown
-    # rather than described. Built from the live list: the numbers and the
-    # names can never disagree with what was just printed above.
-    print_fn(f"  Pick several by separating them with commas - {_example(avail)}")
-    print_fn('  Narrow a category with brackets - e.g. "1[1,3],5[all]" takes '
-             "providers 1 and 3, and every task.")
-    print_fn('  A number with "?" lists that category\'s items (e.g. "5?").')
-    print_fn("")
-
     for _attempt in range(3):
         raw = prompt_fn(
-            "Enter = recommended, 'a' = all, 'n' = none, or numbers: "
+            f'Press Enter to import all of it, or type numbers to LEAVE OUT '
+            f'(e.g. "{len(avail)}"): '
         ) or ""
         try:
-            spec = parse_spec(raw, avail, catalog_of)
+            excluded = parse_exclusions(raw, avail)
         except SpecError as exc:
             print_fn(f"  {exc}")
             continue
-        if spec.listing:
-            for key in spec.listing:
-                print_fn("")
-                print_fn(f"  {_CAT[key]['label']} - items:")
-                entries = catalog_of(key)
-                if not entries:
-                    print_fn("    (nothing to pick - this category is one unit)")
-                for i, (item_id, label) in enumerate(entries, 1):
-                    print_fn(f"    {i}. {label or item_id}")
-            print_fn("")
-            # A "?" is a QUESTION: say so, or the user reads the re-prompt as
-            # the answered line having been thrown away.
-            print_fn("  (nothing selected yet - answer again)")
-            continue
-        return spec
+        return Spec(categories=[k for k in avail if k not in excluded])
     return Spec()
 
 
 
 def run_import(print_fn: Callable = print, prompt_fn: Optional[Callable] = None,
-               *, ask: bool = True, selection: Optional[List[str]] = None,
-               items: Optional[Dict[str, set]] = None) -> int:
-    """Import selected categories from the detected Hermes home(s).
+               *, ask: bool = True,
+               selection: Optional[List[str]] = None) -> int:
+    """Import whole categories from the detected Hermes home(s).
 
-    ``items`` narrows a category to individual entries: ``{"skills": {"a"}}``.
-    A category absent from the mapping imports everything it has.
+    Every selected category imports everything it has; there is no narrower
+    unit. See the "Selection: categories only" note above for why.
     """
     prompt_fn = prompt_fn or (lambda t: input(t))
     try:
@@ -1114,21 +958,15 @@ def run_import(print_fn: Callable = print, prompt_fn: Optional[Callable] = None,
         else:
             spec = Spec(categories=_recommended(avail))
         selection = list(spec.categories)
-        items = {key: set(picks) for key, picks in spec.items.items()}
     selection = [c for c in selection if c in avail]
     if not selection:
         print_fn("Nothing selected - nothing imported.")
         return 0
 
     order = [k for k in _CAT_ORDER if k in selection]
-    items = dict(items or {})
     print_fn("")
     for key in order:
-        picks = items.get(key)
-        if picks is not None and not picks:
-            print_fn(f"  skipped {key}: nothing selected")
-            continue
-        print_fn("  imported " + _run_category(key, nh, home, src, picks))
+        print_fn("  imported " + _run_category(key, nh, home, src))
     print_fn("")
     print_fn("Restart Numbers to pick up the imported items.")
     return 0
@@ -1182,24 +1020,6 @@ def _parse_csv(value: Optional[str]) -> List[str]:
     return [t.strip() for t in (value or "").split(",") if t.strip()]
 
 
-def _parse_items(value: Optional[str]) -> Dict[str, set]:
-    """'skills:a,b;profiles:work' -> {'skills': {'a','b'}, 'profiles': {'work'}}.
-
-    Semicolons separate categories because item ids (MCP servers, env keys)
-    may themselves contain commas-unfriendly characters but never ';'.
-    """
-    out: Dict[str, set] = {}
-    for chunk in (value or "").split(";"):
-        chunk = chunk.strip()
-        if not chunk or ":" not in chunk:
-            continue
-        key, _, rest = chunk.partition(":")
-        key = key.strip()
-        if key in _CAT:
-            out[key] = set(_parse_csv(rest))
-    return out
-
-
 def main(argv: Optional[list] = None) -> int:
     import argparse
     parser = argparse.ArgumentParser(prog="numbers import-hermes",
@@ -1210,22 +1030,16 @@ def main(argv: Optional[list] = None) -> int:
     parser.add_argument("--all", action="store_true", help="Import the recommended set (no prompt).")
     parser.add_argument("--all-including", help="Recommended set plus advanced categories (e.g. env).")
     parser.add_argument("--exclude", help="Remove these categories from the selection (comma list).")
-    parser.add_argument("--items",
-                        help='Pick individual items, e.g. "skills:pdf,ocr;profiles:work". '
-                             "Categories left out import everything they have.")
-    parser.add_argument("--spec", metavar="EXPR",
-                        help='The same expression the interactive prompt takes, for '
-                             'scripting: "1,4,5" or "1[1,3],4[all],5[1,2]". Category '
-                             "and item positions are the ones the menu/--list-items print. "
-                             "Overrides --only/--items/--all.")
-    parser.add_argument("--list-items", metavar="CATEGORY",
-                        help="Print the importable items in a category and exit.")
+    parser.add_argument("--list", action="store_true", dest="list_categories",
+                        help="Print the categories available to import and exit.")
     args = parser.parse_args(argv)
 
     if args.offer and not args.force:
         return offer_import()
 
-    # Build an explicit selection from flags, else fall back to the interactive prompt.
+    # Build an explicit selection from flags, else fall back to the interactive
+    # prompt. Every flag here is category-level: a category is imported whole
+    # or not at all.
     selection: Optional[List[str]] = None
     try:
         nh = _numbers_home()
@@ -1234,25 +1048,12 @@ def main(argv: Optional[list] = None) -> int:
     except Exception:
         avail = list(_CAT_ORDER)
         nh, src = None, []
-    if args.spec:
-        # The prompt and the flag share one parser: what a user can type
-        # interactively is exactly what they can script.
-        try:
-            spec = parse_spec(
-                args.spec, avail,
-                lambda key: list_items(key, nh, src[0], src) if nh and src else [],
-            )
-        except SpecError as exc:
-            print(f"--spec: {exc}")
-            return 2
-        return run_import(ask=False, selection=spec.categories,
-                          items=spec.items or None)
-    if args.list_items:
+    if args.list_categories:
         if nh is None or not src:
             print("No existing Hermes install found - nothing to import.")
             return 0
-        for item_id, text in list_items(args.list_items, nh, src[0], src):
-            print(f"{item_id}\t{text}")
+        for i, key in enumerate(avail, 1):
+            print(_menu_line(key, i, list_items(key, nh, src[0], src)))
         return 0
     if args.only:
         selection = _parse_csv(args.only)
@@ -1263,9 +1064,7 @@ def main(argv: Optional[list] = None) -> int:
     if selection is not None and args.exclude:
         excl = set(_parse_csv(args.exclude))
         selection = [c for c in selection if c not in excl]
-    picked = _parse_items(args.items)
-    return run_import(ask=(selection is None and not picked), selection=selection,
-                      items=picked or None)
+    return run_import(ask=(selection is None), selection=selection)
 
 
 if __name__ == "__main__":

@@ -29,9 +29,16 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from numbers_ext import home
+from numbers_ext.ansi import BOLD, BOLD_GREEN, DIM, RED, RST, YELLOW
 
 API_CLIENT_ID = "numbers-cli"
-DEFAULT_HUB = os.environ.get("NUMBERS_HUB_URL", "https://127.0.0.1:3000")
+
+
+def _hub_base() -> str:
+    """NUMBERS_HUB_URL, read lazily so setting it after import still takes
+    effect (module-load-time binding meant a later os.environ write here was
+    silently ignored -- tokens.py._hub_base already reads it lazily)."""
+    return os.environ.get("NUMBERS_HUB_URL", "https://127.0.0.1:3000")
 
 def _is_headless() -> bool:
     """True when there is no local display to pop a browser window into.
@@ -88,6 +95,23 @@ class AuthError(RuntimeError):
     """Raised for any non-2xx from the Cloud-HUB."""
 
 
+class HubUnreachable(AuthError):
+    """The hub could not be contacted at all: down, refused, DNS, or TLS.
+
+    Carries the pieces needed to explain itself instead of a socket error
+    string. Subclasses AuthError so existing `except AuthError` handlers keep
+    working; catch this FIRST where a friendlier message is wanted.
+    """
+
+    def __init__(self, base: str, tls_problem: bool = False):
+        self.base = base
+        self.tls_problem = tls_problem
+        super().__init__(f"Could not reach Intersession at {base}")
+
+    def lines(self) -> list:
+        return _explain_unreachable(self.base, self.tls_problem)
+
+
 # Hosts where TLS verification is relaxed automatically: a loopback endpoint has
 # no interceptable network hop, so a self-signed dev cert is not a downgrade. This
 # mirrors hermes_cli.model_switch._LOOPBACK_HOSTS. Remote hubs stay fully verified
@@ -111,6 +135,84 @@ def _ssl_ctx(url: str = "") -> ssl.SSLContext:
         ctx.verify_mode = ssl.CERT_NONE
         return ctx
     return ssl.create_default_context()
+
+
+def _origin(url: str) -> str:
+    """"https://host:3000/api/..." -> "https://host:3000".
+
+    The address worth showing a user is the one they can start or point
+    NUMBERS_HUB_URL at -- never the API path that happened to fail.
+    """
+    try:
+        p = urllib.parse.urlparse(url)
+        if p.scheme and p.netloc:
+            return f"{p.scheme}://{p.netloc}"
+    except Exception:
+        pass
+    return url
+
+
+def _explain_unreachable(base: str, tls_problem: bool = False) -> list:
+    """The "Intersession isn't there" screen, as lines.
+
+    Deliberately free of exception text: a WinError number, an errno or a
+    urllib repr tells the person reading it nothing they can act on. Name the
+    address tried and the one thing that fixes it.
+    """
+    out = [
+        "",
+        f"{RED}NUMBERS could not reach Intersession.{RST}",
+        "",
+        f"  Tried:  {_origin(base)}",
+    ]
+    if tls_problem:
+        out += [
+            "  The address answered, but the secure connection failed.",
+            "",
+            "  If that is a self-signed development certificate, set "
+            "NUMBERS_INSECURE=1 and try again.",
+        ]
+    else:
+        out.append("  Fix:    start the Intersession app, then run /sign-in again")
+    out += [
+        "",
+        f"{DIM}If Intersession runs somewhere else, set NUMBERS_HUB_URL to its "
+        f"address.{RST}",
+        "",
+    ]
+    return out
+
+
+def _hub_reachable(base: str, timeout: float = 3.0) -> tuple:
+    """(reachable, tls_problem) for the hub behind ``base``.
+
+    A short TCP (plus TLS, for https) probe so /sign-in never opens a browser
+    and asks for a code it has no way to exchange. Uses the same _ssl_ctx as
+    the real requests, so a loopback dev cert does not read as unreachable.
+    """
+    try:
+        parts = urllib.parse.urlparse(base)
+    except Exception:
+        return False, False
+    host = parts.hostname or "127.0.0.1"
+    port = parts.port or (443 if parts.scheme == "https" else 80)
+    try:
+        sock = socket.create_connection((host, port), timeout=timeout)
+    except OSError:
+        return False, False
+    try:
+        if parts.scheme == "https":
+            try:
+                with _ssl_ctx(base).wrap_socket(sock, server_hostname=host):
+                    return True, False
+            except (ssl.SSLError, ssl.CertificateError, OSError):
+                return False, True
+        return True, False
+    finally:
+        try:
+            sock.close()
+        except Exception:
+            pass
 
 
 def _post(url: str, body: dict, token: Optional[str] = None, timeout: int = 30) -> dict:
@@ -137,12 +239,8 @@ def _post(url: str, body: dict, token: Optional[str] = None, timeout: int = 30) 
     # with an actionable hint so the flow prints instead of silently aborting.
     except (urllib.error.URLError, ssl.SSLError, socket.timeout, OSError) as e:
         reason = getattr(e, "reason", None) or e
-        hint = ""
-        if isinstance(reason, ssl.SSLError) or isinstance(e, ssl.SSLError):
-            hint = " (TLS error — for a self-signed dev cert set NUMBERS_INSECURE=1)"
-        raise AuthError(
-            f"Could not reach Intersession at {url}: {reason}. "
-            f"Is the app running?{hint}") from e
+        tls = isinstance(reason, ssl.SSLError) or isinstance(e, ssl.SSLError)
+        raise HubUnreachable(_origin(url), tls) from e
 
 
 def _prompt_impl(text: str) -> str:  # replaced in tests
@@ -201,12 +299,12 @@ def persist_agent_token(token: str, print_fn: Callable = print) -> int:
     """
     token = (token or "").strip()
     if not token:
-        print_fn("[red]No token given.[/] Create one at Settings -> Agent Tokens, "
+        print_fn(f"{RED}No token given.{RST} Create one at Settings -> Agent Tokens, "
                  "then run: numbers connect <TOKEN>")
         return 1
     home.require_numbers_home()  # never write a Numbers token into a non-Numbers home
     _persist(token)
-    print_fn("[bold green]Token saved.[/] Restart NUMBERS to pick up the angel tools.")
+    print_fn(f"{BOLD_GREEN}Token saved.{RST} Restart NUMBERS to pick up the angel tools.")
     return 0
 
 
@@ -247,57 +345,98 @@ def run_sign_in(print_fn: Callable = print, prompt_fn: Optional[Callable] = None
     """Drive the device flow. Returns the token payload, or None if aborted."""
     prompt_fn = prompt_fn or _prompt_impl
     home.require_numbers_home()  # fail fast: never exchange into a non-Numbers home
-    base = (hub_base or DEFAULT_HUB).rstrip("/")
+    base = (hub_base or _hub_base()).rstrip("/")
+    # Pre-flight: never open a browser and ask for a code we cannot exchange.
+    ok, tls_problem = _hub_reachable(base)
+    if not ok:
+        for line in _explain_unreachable(base, tls_problem):
+            print_fn(line)
+        return None
     try:
         grant = _post(f"{base}/api/settings/agent-tokens/device",
                       {"client": API_CLIENT_ID,
                        "label": f"numbers-cli:{socket.gethostname()[:24]}"})
-    except AuthError as e:
-        print_fn(f"[red]Could not start sign-in: {e}[/]")
+    except HubUnreachable as e:  # before AuthError: it is a subclass
+        for line in e.lines():
+            print_fn(line)
         return None
-    rid, login_url = grant["request_id"], grant["login_url"]
-    print_fn(f"[bold]1) Open this link in your browser:[/]\n   {login_url}\n")
+    except AuthError as e:
+        print_fn(f"{RED}Could not start sign-in: {e}{RST}")
+        return None
+    rid, login_url = grant.get("request_id"), grant.get("login_url")
+    if not rid or not login_url:
+        print_fn(f"{RED}Sign-in failed: unexpected response from Intersession.{RST}")
+        return None
+    print_fn(f"{BOLD}1) Open this link in your browser:{RST}\n   {login_url}\n")
     if open_browser and not _is_headless():
         try:
             webbrowser.open(login_url)
         except Exception:
             pass
     elif open_browser:
-        print_fn("[dim](No local display detected -- open the link above on a "
-                 "machine with a browser.)[/]")
+        print_fn(f"{DIM}(No local display detected -- open the link above on a "
+                 f"machine with a browser.){RST}")
     code = (prompt_fn("\n2) Sign in on the page, then paste the code shown here: ") or "").strip()
     if not code:
-        print_fn("[yellow]Sign-in cancelled.[/]")
+        print_fn(f"{YELLOW}Sign-in cancelled.{RST}")
         return None
     try:
         payload = _exchange(base, rid, code)
-    except AuthError as e:
-        print_fn(f"[red]Sign-in failed: {e}[/]  (codes expire after 10 minutes — try /sign-in again)")
+    except HubUnreachable as e:  # the app went away mid-flow
+        for line in e.lines():
+            print_fn(line)
         return None
-    _persist(payload["token"])
-    print_fn(f"[bold green]Signed in[/] as {payload.get('label', 'your account')}. "
-             f"Angel tools are now enabled for this device.")
+    except AuthError as e:
+        print_fn(f"{RED}Sign-in failed: {e}{RST}  (codes expire after 10 minutes — try /sign-in again)")
+        return None
+    token = payload.get("token")
+    if not token:
+        print_fn(f"{RED}Sign-in failed: unexpected response from Intersession.{RST}")
+        return None
+    _persist(token)
+    print_fn(f"{BOLD_GREEN}Signed in{RST} as {payload.get('label', 'your account')}. "
+             f"Restart NUMBERS to pick up the angel tools.")
     return payload
 
 
 def run_logout(print_fn: Callable = print, hub_base: Optional[str] = None,
                revoke: bool = True) -> None:
     home_dir = home.require_numbers_home()
-    base = (hub_base or DEFAULT_HUB).rstrip("/")
+    base = (hub_base or _hub_base()).rstrip("/")
     token = os.environ.get("NUMBERS_AGENT_TOKEN", "")
     if not token:
         tokf = home_dir / "agent-token"
         if tokf.exists():
             token = tokf.read_text(encoding="utf-8").strip()
-    if revoke and token:
-        try:
-            _post(f"{base}/api/settings/agent-tokens/revoke", {"revoke": True}, token=token)
-        except AuthError as e:
-            print_fn(f"[yellow]Server revocation failed ({e}). "
-                     f"Revoke the token at the website if you want it dead everywhere.[/]")
+    if not token:
+        print_fn("You were not signed in.")
+        return
+    # Clear locally FIRST. Revoking first meant an unreachable Intersession
+    # left the token sitting on disk -- /logout has to work whether or not the
+    # app is running, and "still signed in because the server was down" is the
+    # one outcome a logout must never produce.
     _clear()
     os.environ.pop("NUMBERS_AGENT_TOKEN", None)
-    print_fn("[bold green]Signed out.[/] Angel tools are disabled on this device.")
+    revoked = True
+    if revoke:
+        try:
+            _post(f"{base}/api/settings/agent-tokens/revoke", {"revoke": True}, token=token)
+        except AuthError:
+            revoked = False
+    # The already-running Angel MCP child still holds the old token in memory
+    # until the process restarts -- "disabled" here would be false.
+    if revoked:
+        print_fn(f"{BOLD_GREEN}Signed out.{RST} "
+                 f"Restart NUMBERS to fully disable the angel tools.")
+        return
+    # Local sign-out succeeded; only the account-wide revocation did not. Say
+    # exactly that -- the old wording pasted the socket error into a warning
+    # and read like the whole logout had failed.
+    print_fn(f"{BOLD_GREEN}Signed out on this computer.{RST} "
+             f"Restart NUMBERS to fully disable the angel tools.")
+    print_fn(f"{YELLOW}Intersession could not be reached, so this device's token is "
+             f"still active on your account.{RST}")
+    print_fn("  Revoke it at Settings -> Agent Tokens to disable it everywhere.")
 
 
 def main(argv: Optional[list] = None) -> int:
