@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional
 
 from numbers_ext import home as _home
+from numbers_ext import spinner as _spinner
 
 GUARD_NAME = ".hermes_import_done"
 
@@ -40,6 +41,40 @@ _BRAND_CONFIG_KEYS = frozenset({"display", "mcp_servers", "agent", "model", "_co
 _ENV_DENYLIST = frozenset({
     "ANGEL_CLOUD_API_KEY", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET",
 })
+# Not every .env line is a "key". Hermes' design keeps SECRETS in .env (API
+# keys, tokens, passwords) and behavioral settings in config.yaml -- cli.py
+# then bridges the browser/terminal sections back into env vars for the tools
+# that still read them, so a settings-shaped line in a Hermes .env is a legacy
+# override, not a credential. Copying those into the isolated Numbers .env
+# silently retunes Numbers' own tools (browser stealth, terminal backend, ...)
+# and made the import menu read like a tools list under the "Env keys"
+# heading. Secret wins over setting, so BROWSERBASE_API_KEY is still a key.
+_ENV_SECRET_RE = re.compile(
+    r"(?i)(?:^|_)(API_?KEY|SECRET|TOKEN|PASSWORD|PASSWD|CREDENTIALS?)(?:$|_)"
+)
+_ENV_SETTING_RE = re.compile(
+    r"(?i)^(?:BROWSER|BROWSERBASE|TERMINAL)_"   # browser / terminal tool tuning
+    r"|_TOOLS?_DEBUG$"                          # per-tool debug flags
+    r"|_BASE_URL$"                              # endpoint overrides
+    r"|_TIMEOUT$"                               # timeouts
+)
+
+
+def env_key_kind(key: str) -> str:
+    """Classify one .env name: "secret" (an importable key) or "setting".
+
+    Unknown names stay secrets on purpose: the env category may shrink to
+    what this function understands, but it must never silently drop a line
+    it cannot classify.
+    """
+    name = (key or "").strip()
+    if _ENV_SECRET_RE.search(name):
+        return "secret"
+    if _ENV_SETTING_RE.search(name):
+        return "setting"
+    return "secret"
+
+
 _JUNK_SUFFIX = (".pyc", ".pyo", ".sock", ".tmp")
 # Per-home history/runtime that must not carry over on a directory copy.
 _HISTORY_NAMES = frozenset({
@@ -200,6 +235,20 @@ def _write_env_keys(nh: Path, pairs: Dict[str, str]) -> List[str]:
     except Exception:
         return []
     return list(to_add.keys())
+
+
+def _env_keys_to_import(nh: Path, home: Path) -> List[str]:
+    """The Hermes .env names the `env` category will actually bring across.
+
+    Secrets only (see env_key_kind): a settings-shaped line is tool
+    configuration Numbers already receives through the `config` category,
+    and importing it as a "key" is what made the menu read like a tools
+    list.
+    """
+    have = set(_read_env_file(nh / ".env"))
+    return [k for k in sorted(_read_env_file(home / ".env"))
+            if k not in _ENV_DENYLIST and k not in have
+            and env_key_kind(k) == "secret"]
 
 
 def _copy_file(src: Path, dst: Path) -> bool:
@@ -611,26 +660,30 @@ def _import_env(nh: Path, home: Path) -> str:
         src_lines = src.read_text(encoding="utf-8").splitlines()
     except Exception:
         return "env: unreadable"
-    dst_path = nh / ".env"
-    have = {}
-    if dst_path.exists():
-        for ln in dst_path.read_text(encoding="utf-8").splitlines():
-            if "=" in ln and not ln.lstrip().startswith("#"):
-                have[ln.split("=", 1)[0].strip()] = ln
+    keep = set(_env_keys_to_import(nh, home))
+    skipped = sorted(
+        k for k in _read_env_file(src)
+        if k not in _ENV_DENYLIST and env_key_kind(k) == "setting"
+    )
     to_add = []
     for ln in src_lines:
         if "=" not in ln or ln.lstrip().startswith("#"):
             continue
-        key = ln.split("=", 1)[0].strip()
-        if key in _ENV_DENYLIST or key in have:
+        if ln.split("=", 1)[0].strip() not in keep:
             continue
         to_add.append(ln)
     if to_add:
+        dst_path = nh / ".env"
         _backup(dst_path)
         existing = dst_path.read_text(encoding="utf-8") if dst_path.exists() else ""
         _atomic_write(dst_path, existing + ("\n" if existing and not existing.endswith("\n") else "")
                       + "\n".join(to_add) + "\n")
-    return f"env: {len(to_add)} keys" if to_add else "env: nothing new"
+    report = f"env: {len(to_add)} keys" if to_add else "env: nothing new"
+    if skipped:
+        preview = ", ".join(skipped[:3]) + (", ..." if len(skipped) > 3 else "")
+        report += (f" - {len(skipped)} tool settings left in Hermes "
+                   f"({preview}: they configure tools, not keys)")
+    return report
 
 
 # --------------------------------------------------------------------------
@@ -648,7 +701,7 @@ _CAT: Dict[str, dict] = {
     "pets":       {"label": "Pets",       "advanced": False, "summary": "petdex"},
     "config":     {"label": "Config",     "advanced": False, "summary": "safe settings (keeps Numbers branding)"},
     "persona":    {"label": "Persona",    "advanced": False, "summary": "SOUL.md and prompt overrides"},
-    "env":        {"label": "Env keys",   "advanced": True, "summary": "extra .env settings (app-identity secrets excluded)"},
+    "env":        {"label": "Env keys",   "advanced": True, "summary": "extra .env secrets (tool settings like BROWSER_*/TERMINAL_* stay in Hermes)"},
 }
 _CAT_ORDER = list(_CAT.keys())
 
@@ -690,7 +743,7 @@ def available_categories(numbers_home: Path, src_homes: List[Path]) -> List[str]
         avail.append("config")
     if any((home / f).is_file() for f in ("system_prompt.md", "AGENTS.md", "CLAUDE.md", ".cursorrules", "SOUL.md")):
         avail.append("persona")
-    if (home / ".env").is_file():
+    if _env_keys_to_import(numbers_home, home):
         avail.append("env")
     return [k for k in _CAT_ORDER if k in avail]
 
@@ -765,9 +818,7 @@ def list_items(key: str, nh: Path, home: Path,
         return [(k, k) for k in sorted(src)
                 if k not in _BRAND_CONFIG_KEYS and k not in dst]
     if key == "env":
-        have = set(_read_env_file(nh / ".env"))
-        return [(k, k) for k in sorted(_read_env_file(home / ".env"))
-                if k not in _ENV_DENYLIST and k not in have]
+        return [(k, k) for k in _env_keys_to_import(nh, home)]
     return []
 
 
@@ -1025,8 +1076,13 @@ def run_import(print_fn: Callable = print, prompt_fn: Optional[Callable] = None,
     # category and stopped with no error and no summary.
     failed = 0
     for key in order:
+        label = f"importing {_CAT[key]['label']}"
         try:
-            print_fn("  imported " + _run_category(key, nh, home, src))
+            report = _spinner.run_with_spinner(
+                print_fn, label,
+                lambda k=key: _run_category(k, nh, home, src),
+            )
+            print_fn("  imported " + report)
         except Exception as exc:  # noqa: BLE001 -- one category must not end the run
             failed += 1
             print_fn(f"  SKIPPED {key}: {exc}")

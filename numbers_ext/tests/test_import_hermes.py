@@ -571,3 +571,81 @@ def test_offer_reports_a_failure_instead_of_swallowing_it(homes, monkeypatch):
     assert "hermes home vanished mid-copy" in rendered
     # A failed offer must not burn the one-shot guard.
     assert not (homes["numbers"] / ih.GUARD_NAME).exists()
+
+
+# --------------------------------------------------------------------------
+# The env category: keys are secrets, not tool settings.
+#
+# The menu listed BROWSER_*/TERMINAL_*/debug-flag lines out of a Hermes .env
+# under "Env keys", so the category read like a tools list. Those lines are
+# legacy env bridges for config.yaml settings (cli.py maps them back at
+# startup) -- not credentials. Only secrets are keys.
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("key, kind", [
+    ("DEEPSEEK_API_KEY", "secret"),
+    ("GLM_API_KEY", "secret"),
+    ("GOOGLE_API_KEY", "secret"),
+    ("HF_TOKEN", "secret"),
+    ("SUDO_PASSWORD", "secret"),
+    ("BROWSERBASE_API_KEY", "secret"),            # secret wins over the BROWSER prefix
+    ("BROWSER_INACTIVITY_TIMEOUT", "setting"),
+    ("BROWSER_SESSION_TIMEOUT", "setting"),
+    ("BROWSERBASE_ADVANCED_STEALTH", "setting"),
+    ("BROWSERBASE_PROXIES", "setting"),
+    ("TERMINAL_ENV", "setting"),
+    ("TERMINAL_MODAL_IMAGE", "setting"),
+    ("TERMINAL_LIFETIME_SECONDS", "setting"),
+    ("WEB_TOOLS_DEBUG", "setting"),
+    ("IMAGE_TOOLS_DEBUG", "setting"),
+    ("DEEPSEEK_BASE_URL", "setting"),
+    ("SOME_UNKNOWN_THING", "secret"),             # unknown keeps the old behavior
+])
+def test_env_key_kind(key, kind):
+    assert ih.env_key_kind(key) == kind
+
+
+def test_env_menu_lists_only_importable_keys(homes):
+    """Regression: the Env keys line listed tool settings, not keys."""
+    (homes["hermes"] / ".env").write_text(
+        "DEEPSEEK_API_KEY=ds\n"
+        "BROWSER_INACTIVITY_TIMEOUT=120\n"
+        "WEB_TOOLS_DEBUG=true\n", encoding="utf-8")
+    src = ih._candidate_hermes_homes(homes["numbers"])
+    names = dict(ih.list_items("env", homes["numbers"], homes["hermes"], src))
+    assert "DEEPSEEK_API_KEY" in names
+    assert "BROWSER_INACTIVITY_TIMEOUT" not in names
+    assert "WEB_TOOLS_DEBUG" not in names
+
+
+def test_env_import_skips_settings_and_says_so(homes):
+    (homes["hermes"] / ".env").write_text(
+        "DEEPSEEK_API_KEY=ds\n"
+        "BROWSER_SESSION_TIMEOUT=300\n"
+        "TERMINAL_ENV=local\n", encoding="utf-8")
+    out = []
+    ih.run_import(print_fn=lambda *a, **k: out.append(" ".join(map(str, a))),
+                  ask=False, selection=["env"])
+    env = ih._read_env_file(homes["numbers"] / ".env")
+    assert env.get("DEEPSEEK_API_KEY") == "ds"
+    assert "BROWSER_SESSION_TIMEOUT" not in env and "TERMINAL_ENV" not in env
+    assert any("tool settings" in line for line in out)
+
+
+def test_env_not_offered_when_only_settings_remain(homes):
+    """A .env of pure tool settings has nothing to offer: no Env keys line."""
+    (homes["hermes"] / ".env").write_text(
+        "BROWSER_INACTIVITY_TIMEOUT=120\nTERMINAL_ENV=local\n", encoding="utf-8")
+    src = ih._candidate_hermes_homes(homes["numbers"])
+    assert "env" not in ih.available_categories(homes["numbers"], src)
+
+
+def test_run_import_announces_each_category_before_importing_it(rich):
+    """Regression: between the menu answer and the first result line the
+    import printed nothing, so a slow category looked like a hang."""
+    out = []
+    ih.run_import(print_fn=lambda *a, **k: out.append(" ".join(map(str, a))),
+                  ask=False, selection=["providers", "memory"])
+    rendered = "\n".join(out)
+    assert rendered.index("importing Providers") < rendered.index("imported providers")
+    assert rendered.index("importing Memory") < rendered.index("imported memory")
