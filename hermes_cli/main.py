@@ -15131,10 +15131,12 @@ def main():
                                  help="Recommended set plus advanced categories (e.g. env)")
         _numbers_ih.add_argument("--exclude",
                                  help="Remove these categories from the selection (comma list)")
-        _numbers_ih.add_argument("--items",
-                                 help='Pick individual items, e.g. "skills:pdf,ocr;profiles:work"')
-        _numbers_ih.add_argument("--list-items", metavar="CATEGORY",
-                                 help="Print the importable items in a category and exit")
+        # Category-level flags only. --items/--list-items were still declared
+        # here long after the importer dropped its per-item layer, so the verb
+        # accepted two flags that `import_hermes.main()` then rejected with a
+        # bare argparse exit 2 -- the drift this passthrough exists to prevent.
+        _numbers_ih.add_argument("--list", action="store_true", dest="list_categories",
+                                 help="Print the categories available to import and exit")
 
         def _numbers_cmd_import_hermes(args):
             """Rebuild an argv for numbers_ext.import_hermes.main().
@@ -15144,14 +15146,13 @@ def main():
             can never drift apart.
             """
             argv = []
-            for flag in ("offer", "force", "all"):
-                if getattr(args, flag, False):
-                    argv.append("--" + flag)
+            for flag, dest in (("--offer", "offer"), ("--force", "force"),
+                               ("--all", "all"), ("--list", "list_categories")):
+                if getattr(args, dest, False):
+                    argv.append(flag)
             for flag, dest in (("--only", "only"),
                                ("--all-including", "all_including"),
-                               ("--exclude", "exclude"),
-                               ("--items", "items"),
-                               ("--list-items", "list_items")):
+                               ("--exclude", "exclude")):
                 value = getattr(args, dest, None)
                 if value:
                     argv += [flag, value]

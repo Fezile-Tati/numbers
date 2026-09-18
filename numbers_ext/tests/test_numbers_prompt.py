@@ -174,6 +174,89 @@ def test_reset_cancels_on_anything_but_a_level(monkeypatch):
         assert any("Cancelled" in line for line in cli.printed)
 
 
+# --- /import-hermes picks categories through the same modal ----------------
+# With a prompt_toolkit app running, _prompt_text_input cannot own stdin from
+# the slash-worker thread and returns None -- which is also what a bare Enter
+# returns. "Could not ask" and "take everything" were therefore the same value,
+# so /import-hermes imported every category without showing the question.
+
+def _run_import_handler(cli, monkeypatch, ctx=None, imported=None):
+    """Drive /import-hermes with a fake TUI. Records the selection imported."""
+    import numbers_ext.import_hermes as ih
+
+    monkeypatch.setattr(ih, "import_context", lambda: ctx)
+    monkeypatch.setattr(ih, "run_import",
+                        lambda print_fn=print, **kw: imported.append(kw.get("selection")))
+    monkeypatch.setattr(cli, "_numbers_write_import_guard", lambda: None)
+    monkeypatch.setitem(__import__("sys").modules, "cli",
+                        type("m", (), {"_cprint": cli.printed.append}))
+    cli._handle_import_hermes_command("/import-hermes")
+
+
+_CTX = {
+    "numbers_home": "N", "hermes_home": "H", "sources": ["H"],
+    "available": ["providers", "memory", "env"],
+    "entries": [("providers", "Providers", "anthropic, deepseek"),
+                ("memory", "Memory", "memories/"),
+                ("env", "Env keys", "12 keys")],
+}
+
+
+def test_import_never_reads_stdin_from_the_slash_worker_thread(monkeypatch):
+    cli = _FakeTUI("__import__")          # accept the default (all ticked)
+    imported = []
+    _run_import_handler(cli, monkeypatch, ctx=_CTX, imported=imported)
+    assert cli.modal_kwargs is not None, "/import-hermes never opened the modal"
+    assert imported == [["providers", "memory", "env"]]
+
+
+def test_import_modal_lists_every_category_plus_import_and_cancel(monkeypatch):
+    cli = _FakeTUI("__cancel__")
+    _run_import_handler(cli, monkeypatch, ctx=_CTX, imported=[])
+    keys = [c[0] for c in cli.modal_kwargs["choices"]]
+    assert keys == ["providers", "memory", "env", "__import__", "__cancel__"]
+    # Numbering matches the typed menu: line 1 is category 1, not a verb.
+    labels = [c[1] for c in cli.modal_kwargs["choices"]]
+    assert labels[0].endswith("Providers") and labels[0].startswith("[x]")
+
+
+def test_import_cancels_without_copying_anything(monkeypatch):
+    for answer in ("__cancel__", None):    # None == ESC or timeout
+        cli = _FakeTUI(answer)
+        imported = []
+        _run_import_handler(cli, monkeypatch, ctx=_CTX, imported=imported)
+        assert imported == []
+        assert any("cancelled" in line.lower() for line in cli.printed)
+
+
+def test_import_toggles_a_line_off_before_importing(monkeypatch):
+    class _Toggle(_FakeTUI):
+        def __init__(self):
+            super().__init__(None)
+            self.answers = ["env", "__import__"]   # untick env, then import
+            self.seen = []
+
+        def _prompt_text_input_modal(self, **kw):
+            self.modal_kwargs = kw
+            self.seen.append([c[1] for c in kw["choices"]])
+            return self.answers.pop(0)
+
+    cli = _Toggle()
+    imported = []
+    _run_import_handler(cli, monkeypatch, ctx=_CTX, imported=imported)
+    assert imported == [["providers", "memory"]]
+    # The tick mark actually changed on the redraw, so the menu is readable.
+    assert cli.seen[0][2].startswith("[x]") and cli.seen[1][2].startswith("[ ]")
+
+
+def test_import_says_so_when_there_is_nothing_to_take(monkeypatch):
+    cli = _FakeTUI("__import__")
+    imported = []
+    _run_import_handler(cli, monkeypatch, ctx=None, imported=imported)
+    assert imported == []
+    assert any("Nothing new to import" in line for line in cli.printed)
+
+
 def test_reset_explains_the_level_it_is_about_to_run(monkeypatch):
     """The erase list is printed after the choice, so it describes the level
     actually picked rather than both at once."""

@@ -784,10 +784,16 @@ def list_items(key: str, nh: Path, home: Path,
 # --list-items) was where the earlier import attempts went wrong: it could
 # silently import a subset, and it made the common case -- take everything --
 # the hardest thing to express. One answer now picks whole categories.
+#
+# The numbers a user types MEAN what the menu shows them: "1" imports line 1.
+# They used to be read as a list to LEAVE OUT, which is the one thing a
+# numbered menu cannot communicate -- answering "1" to a menu whose first line
+# read "Providers" imported everything EXCEPT providers, and the user was told
+# nothing. A menu that numbers its lines is a menu you pick from.
 # --------------------------------------------------------------------------
 
 _ALL_TOKENS = frozenset({"a", "all", "everything", "*"})
-_NONE_TOKENS = frozenset({"n", "no", "none", "skip", "q", "quit"})
+_NONE_TOKENS = frozenset({"n", "no", "none", "skip", "q", "quit", "cancel"})
 
 
 class SpecError(ValueError):
@@ -801,9 +807,14 @@ class Spec:
     ``categories`` is in MENU order, not typing order, so the import report
     reads top to bottom like the menu did. Each listed category imports
     everything it has -- there is no narrower unit.
+
+    ``cancelled`` is NOT the same as an empty ``categories``: "none" is a
+    decision to stop, an unanswerable prompt is a failure to ask. They are
+    reported differently so a cancelled import never looks like a broken one.
     """
 
     categories: List[str] = field(default_factory=list)
+    cancelled: bool = False
 
 
 def _missing_providers(numbers_home: Path, src_homes: List[Path]) -> List[str]:
@@ -840,59 +851,88 @@ def _recommended(avail: List[str]) -> List[str]:
     return [k for k in avail if not _CAT[k]["advanced"]]
 
 
-def parse_exclusions(raw: str, avail: List[str]) -> List[str]:
-    """Parse a flat "leave these out" answer into category keys to exclude.
+def parse_selection(raw: str, avail: List[str]) -> Optional[List[str]]:
+    """Parse the menu answer into the category keys to IMPORT.
 
-    Enter (empty) or 'none' -> exclude nothing, i.e. import everything.
-    'all' -> exclude everything, i.e. import nothing.
-    Otherwise: 1-based category positions, comma/space/semicolon separated,
-    naming what to LEAVE OUT. A non-numeric or out-of-range token raises
-    SpecError so the caller re-asks -- a typo must never silently narrow the
-    import with no message.
+    1-based menu positions, comma/space/semicolon separated: "1,2,5,8" imports
+    exactly the categories on those four lines. Enter (empty) and "all" both
+    mean every listed category -- taking everything is the common case, so it
+    stays the cheapest answer to give. "none" (or q/quit/cancel) returns None,
+    meaning the user asked to stop rather than to import an empty set.
+
+    A non-numeric or out-of-range token raises SpecError so the caller re-asks.
+    A typo must never silently import something other than what was typed.
     """
     tokens = [t for t in re.split(r"[,;\s]+", (raw or "").strip()) if t]
     if not tokens:
-        return []
+        return list(avail)
     lowered = [t.lower() for t in tokens]
     if len(tokens) == 1 and lowered[0] in _NONE_TOKENS:
-        return []
+        return None
     if len(tokens) == 1 and lowered[0] in _ALL_TOKENS:
         return list(avail)
-    excluded: List[str] = []
+    picked: List[str] = []
     for tok, low in zip(tokens, lowered):
         if low in _ALL_TOKENS or low in _NONE_TOKENS:
-            raise SpecError(f"'{tok}' cannot be combined with other entries.")
+            raise SpecError(f"'{tok}' has to be the whole answer, on its own.")
         if not tok.isdigit():
             raise SpecError(f"'{tok}' is not a category number (1-{len(avail)}).")
         idx = int(tok) - 1
         if not 0 <= idx < len(avail):
             raise SpecError(f"'{tok}' is not one of the categories (1-{len(avail)}).")
         key = avail[idx]
-        if key not in excluded:
-            excluded.append(key)
-    return excluded
+        if key not in picked:
+            picked.append(key)
+    return [k for k in avail if k in picked]
 
 
-def _menu_line(key: str, pos: int, entries: List[tuple]) -> str:
-    """One line: the category plus what it will actually bring in.
+def _menu_detail(key: str, entries: List[tuple]) -> str:
+    """What a category will actually bring in, as one short phrase.
 
     Enumerable categories (skills, tasks, ...) show real item names/count;
     all-or-nothing categories show their plain-language summary -- never the
     bare, meaningless "(all)" the old menu printed for both.
     """
-    meta = _CAT[key]
-    if entries:
-        names = ", ".join(label or item_id for item_id, label in entries[:4])
-        extra = len(entries) - 4
-        detail = names + (f" (+{extra} more)" if extra > 0 else "")
-    else:
-        detail = meta["summary"]
-    return f"  {pos}. {meta['label']:<12} {detail}"
+    if not entries:
+        return _CAT[key]["summary"]
+    names = ", ".join(label or item_id for item_id, label in entries[:4])
+    extra = len(entries) - 4
+    return names + (f" (+{extra} more)" if extra > 0 else "")
+
+
+def _menu_line(key: str, pos: int, entries: List[tuple]) -> str:
+    """One numbered menu line: the category plus what it will bring in."""
+    return f"  {pos}. {_CAT[key]['label']:<12} {_menu_detail(key, entries)}"
+
+
+def example_answer(avail: List[str]) -> str:
+    """A worked example of the answer format, using real line numbers.
+
+    Always valid for the menu on screen: an example citing line 8 of a
+    five-line menu teaches the format and fails if copied.
+    """
+    wanted = [n for n in (1, 2, 5, 8) if n <= len(avail)]
+    if len(wanted) < 2:                       # 1-line menu: nothing to comma
+        return "1"
+    return ",".join(str(n) for n in wanted)
+
+
+def selection_guide(avail: List[str]) -> List[str]:
+    """The lines that say how to answer, printed under every menu.
+
+    The menu used to end at its last category, leaving the format to be
+    guessed from a parenthesised hint inside the prompt itself.
+    """
+    return [
+        f"  Type the numbers you want, separated by commas  -  e.g. {example_answer(avail)}",
+        "  all    import everything listed above   (same as pressing Enter)",
+        "  none   import nothing, close this menu",
+    ]
 
 
 def _prompt_selection(avail: List[str], print_fn: Callable, prompt_fn: Callable,
                       catalog_of: Optional[Callable[[str], List[tuple]]] = None) -> Spec:
-    """Print the flat "everything, minus what you exclude" menu and read one answer.
+    """Print the "pick what you want" menu and read one answer.
 
     ``catalog_of`` maps a category key to its ``(item_id, label)`` pairs, used
     only to describe each line -- there is no per-item selection here. Most
@@ -900,36 +940,46 @@ def _prompt_selection(avail: List[str], print_fn: Callable, prompt_fn: Callable,
 
     Re-asks (up to three times) only when the answer cannot be parsed:
     silently importing a subset because a token was dropped is the bug this
-    replaces.
+    replaces. Exhausting the re-asks cancels rather than falling through to a
+    default -- three unreadable answers in a row is a prompt nobody is
+    answering, and guessing on the user's behalf is how an unattended terminal
+    ends up importing a category it was never shown.
     """
     catalog_of = catalog_of or (lambda _key: [])
     print_fn("")
-    print_fn("Importing everything from Hermes:")
+    print_fn("Import from Hermes - pick what to bring across:")
     for i, key in enumerate(avail, 1):
         print_fn(_menu_line(key, i, catalog_of(key)))
     print_fn("")
+    for line in selection_guide(avail):
+        print_fn(line)
+    print_fn("")
     for _attempt in range(3):
-        raw = prompt_fn(
-            f'Press Enter to import all of it, or type numbers to LEAVE OUT '
-            f'(e.g. "{len(avail)}"): '
-        ) or ""
+        raw = prompt_fn("Import [Enter = all]: ") or ""
         try:
-            excluded = parse_exclusions(raw, avail)
+            picked = parse_selection(raw, avail)
         except SpecError as exc:
             print_fn(f"  {exc}")
             continue
-        return Spec(categories=[k for k in avail if k not in excluded])
-    return Spec()
+        if picked is None:
+            return Spec(cancelled=True)
+        return Spec(categories=picked)
+    return Spec(cancelled=True)
 
 
 
 def run_import(print_fn: Callable = print, prompt_fn: Optional[Callable] = None,
                *, ask: bool = True,
-               selection: Optional[List[str]] = None) -> int:
+               selection: Optional[List[str]] = None,
+               restart_hint: bool = True) -> int:
     """Import whole categories from the detected Hermes home(s).
 
     Every selected category imports everything it has; there is no narrower
     unit. See the "Selection: categories only" note above for why.
+
+    ``restart_hint`` is off for the first-run offer, which the launcher runs
+    immediately BEFORE starting Numbers -- telling someone to restart an app
+    that is about to start on its own reads as a failure.
     """
     prompt_fn = prompt_fn or (lambda t: input(t))
     try:
@@ -957,6 +1007,9 @@ def run_import(print_fn: Callable = print, prompt_fn: Optional[Callable] = None,
             )
         else:
             spec = Spec(categories=_recommended(avail))
+        if spec.cancelled:
+            print_fn("Import cancelled - nothing was copied.")
+            return 0
         selection = list(spec.categories)
     selection = [c for c in selection if c in avail]
     if not selection:
@@ -965,11 +1018,55 @@ def run_import(print_fn: Callable = print, prompt_fn: Optional[Callable] = None,
 
     order = [k for k in _CAT_ORDER if k in selection]
     print_fn("")
+    # Each category is isolated: one that fails reports itself and the rest
+    # still run. They were a single unguarded loop, so the first failure ended
+    # the import wherever it happened to be -- and because offer_import()
+    # swallowed the exception, what the user saw was an import that copied one
+    # category and stopped with no error and no summary.
+    failed = 0
     for key in order:
-        print_fn("  imported " + _run_category(key, nh, home, src))
+        try:
+            print_fn("  imported " + _run_category(key, nh, home, src))
+        except Exception as exc:  # noqa: BLE001 -- one category must not end the run
+            failed += 1
+            print_fn(f"  SKIPPED {key}: {exc}")
     print_fn("")
-    print_fn("Restart Numbers to pick up the imported items.")
+    if failed:
+        print_fn(f"{failed} of {len(order)} categories could not be imported "
+                 f"(listed above). The rest are in place.")
+    if restart_hint:
+        print_fn("Restart Numbers to pick up the imported items.")
     return 0
+
+
+def import_context() -> Optional[dict]:
+    """What a front-end needs to offer the menu, or None when there is nothing.
+
+    Exists so the TUI can build its own picker without re-deriving homes,
+    availability or labels -- three things that must agree with what the
+    importer will actually do, and silently stopped agreeing once the TUI had
+    its own copy of them.
+    """
+    try:
+        nh = _numbers_home()
+    except Exception:
+        return None
+    src = _candidate_hermes_homes(nh)
+    if not src:
+        return None
+    avail = available_categories(nh, src)
+    if not avail:
+        return None
+    home = src[0]
+    return {
+        "numbers_home": nh,
+        "hermes_home": home,
+        "sources": src,
+        "available": avail,
+        "entries": [(key, _CAT[key]["label"],
+                     _menu_detail(key, list_items(key, nh, home, src)))
+                    for key in avail],
+    }
 
 
 def offer_import(print_fn: Callable = print, prompt_fn: Optional[Callable] = None) -> int:
@@ -991,10 +1088,19 @@ def offer_import(print_fn: Callable = print, prompt_fn: Optional[Callable] = Non
     # is imported; leave the guard unwritten so the offer survives to a real
     # terminal, and let the launcher continue either way.
     try:
-        run_import(print_fn=print_fn, prompt_fn=prompt_fn, ask=True)
+        run_import(print_fn=print_fn, prompt_fn=prompt_fn, ask=True,
+                   restart_hint=False)
     except (EOFError, KeyboardInterrupt):
+        print_fn("")
+        print_fn("Import skipped. Run `numbers import-hermes` when you want it.")
         return 0
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 -- never block the launcher
+        # Reported, not swallowed. This used to be a bare `return 0`, so a
+        # failure mid-import looked exactly like a completed one: some
+        # categories copied, no error, no summary, and the launcher carrying
+        # on to start Numbers over the top of it.
+        print_fn(f"Import stopped: {exc}")
+        print_fn("Run `numbers import-hermes` to try again.")
         return 0
     guard.write_text("done\n", encoding="utf-8")
     return 0

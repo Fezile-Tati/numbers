@@ -4234,14 +4234,89 @@ class CLICommandsMixin:
 
         The first-run offer only fires once; this is the way back in for anyone
         who declined it or changed their mind.
+
+        Selection goes through the prompt_toolkit modal, NOT the typed menu the
+        bare `numbers` launcher uses. Slash commands are dispatched from the
+        process_loop daemon thread, where ``_prompt_text_input`` cannot safely
+        own stdin and so returns None by design (#23185). An unanswerable
+        prompt read as an empty line, and an empty line means "import
+        everything" -- so /import-hermes silently copied every category
+        without ever showing the question. Consent has to come from a channel
+        the TUI can actually deliver, which is the same modal /reset uses.
         """
         from cli import _cprint
-        from numbers_ext.import_hermes import run_import_command
+        from numbers_ext.import_hermes import (import_context, run_import,
+                                               run_import_command)
+
+        modal = getattr(self, "_prompt_text_input_modal", None)
+        if modal is None:  # no TUI running (tests, piped stdin): typed menu
+            try:
+                run_import_command(print_fn=_cprint, prompt_fn=self._numbers_prompt)
+            except (EOFError, KeyboardInterrupt):
+                _cprint("Import cancelled.")
+            return
+
+        ctx = import_context()
+        if ctx is None:
+            _cprint("Nothing new to import from Hermes.")
+            return
+
+        picked = self._numbers_pick_import_categories(modal, ctx)
+        if picked is None:
+            _cprint("Import cancelled - nothing was copied.")
+            return
+        if not picked:
+            _cprint("Nothing ticked - nothing imported.")
+            return
+        run_import(print_fn=_cprint, ask=False, selection=picked)
+        self._numbers_write_import_guard()
+
+    def _numbers_pick_import_categories(self, modal, ctx) -> "list | None":
+        """Tick/untick categories in the slash-confirm modal. None == cancel.
+
+        The modal answers one keypress at a time, so each press toggles a line
+        and the menu is drawn again with the marks updated -- a multi-select
+        built from the single-choice widget that already works on every
+        platform, rather than a second input path to keep alive.
+
+        Numbering matches the typed menu exactly (line 1 is category 1), so the
+        two front-ends can be described by one set of instructions.
+        """
+        entries = ctx["entries"]
+        # Everything ticked to start with: taking the lot is the common case,
+        # and it is what a bare Enter means on the typed menu.
+        picked = {key for key, _label, _detail in entries}
+        detail = (
+            f"Copying from {ctx['hermes_home']} into this NUMBERS home. That "
+            "install is only ever read, never changed. Press a number to tick "
+            "or untick a line, then choose Import.")
+        while True:
+            choices = [
+                (key, f"[{'x' if key in picked else ' '}] {label}", det)
+                for key, label, det in entries
+            ]
+            choices.append(("__import__", f"Import the {len(picked)} ticked above",
+                            "start copying now"))
+            choices.append(("__cancel__", "Cancel", "nothing is copied"))
+            answer = modal(title="Import from Hermes", detail=detail,
+                           choices=choices)
+            if answer is None or answer == "__cancel__":
+                return None
+            if answer == "__import__":
+                return [key for key, _l, _d in entries if key in picked]
+            if answer in picked:
+                picked.discard(answer)
+            elif any(answer == key for key, _l, _d in entries):
+                picked.add(answer)
+
+    def _numbers_write_import_guard(self) -> None:
+        """Answer the first-run offer, so it stops asking after a manual run."""
+        from numbers_ext.import_hermes import GUARD_NAME, _numbers_home
 
         try:
-            run_import_command(print_fn=_cprint, prompt_fn=self._numbers_prompt)
-        except (EOFError, KeyboardInterrupt):
-            _cprint("Import cancelled.")
+            (_numbers_home() / GUARD_NAME).write_text("done\n", encoding="utf-8")
+        except Exception:
+            pass  # a home we cannot write to just means the offer asks again
 
     def _numbers_prompt(self, text: str) -> str:
         """Read one line from the user without breaking the TUI.

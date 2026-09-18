@@ -98,8 +98,8 @@ def test_selection_accepts_spaces_or_commas(homes):
     avail = ["providers", "skills", "memory", "config"]
     by_comma = ih._prompt_selection(avail, lambda *a, **k: None, lambda _t: "1,3")
     by_space = ih._prompt_selection(avail, lambda *a, **k: None, lambda _t: "1 3")
-    # "1,3" LEAVES OUT providers and memory -- everything else is imported.
-    assert by_comma.categories == by_space.categories == ["skills", "config"]
+    # "1,3" imports lines 1 and 3 -- the numbers mean what the menu shows.
+    assert by_comma.categories == by_space.categories == ["providers", "memory"]
 
 
 def test_sessions_category_removed():
@@ -108,32 +108,52 @@ def test_sessions_category_removed():
 
 
 # --------------------------------------------------------------------------
-# parse_exclusions: the interactive "leave these out" answer, replacing the
-# old select-and-narrow grammar (still available for scripting as parse_spec).
+# parse_selection: the numbers on screen are the numbers you get.
+#
+# They used to be read as a list to LEAVE OUT, which a numbered menu cannot
+# communicate: answering "1" to a menu headed "1. Providers" imported
+# everything except providers, and said nothing about it.
 # --------------------------------------------------------------------------
 
 @pytest.mark.parametrize("raw, expected", [
-    ("", []),
-    ("none", []),
-    ("no", []),
-    ("skip", []),
+    ("", ["providers", "skills", "memory"]),        # Enter == take it all
     ("all", ["providers", "skills", "memory"]),
     ("a", ["providers", "skills", "memory"]),
     ("2", ["skills"]),
     ("1,3", ["providers", "memory"]),
     ("1 3", ["providers", "memory"]),
-    ("3;1", ["memory", "providers"]),
+    ("3;1", ["providers", "memory"]),               # menu order, not typing order
+    ("2,2", ["skills"]),                            # a repeat is not two imports
 ])
-def test_parse_exclusions(raw, expected):
+def test_parse_selection(raw, expected):
     avail = ["providers", "skills", "memory"]
-    assert ih.parse_exclusions(raw, avail) == expected
+    assert ih.parse_selection(raw, avail) == expected
 
 
-@pytest.mark.parametrize("bad", ["9", "wibble", "1,all", "0"])
-def test_parse_exclusions_rejects_what_it_cannot_interpret(bad):
+@pytest.mark.parametrize("raw", ["none", "no", "skip", "q", "quit", "cancel"])
+def test_parse_selection_none_is_a_stop_not_an_empty_pick(raw):
+    """None and [] are different answers: "stop" vs "you picked nothing"."""
+    assert ih.parse_selection(raw, ["providers", "skills", "memory"]) is None
+
+
+@pytest.mark.parametrize("bad", ["9", "wibble", "1,all", "0", "-1", "1.5"])
+def test_parse_selection_rejects_what_it_cannot_interpret(bad):
     avail = ["providers", "skills", "memory"]
     with pytest.raises(ih.SpecError):
-        ih.parse_exclusions(bad, avail)
+        ih.parse_selection(bad, avail)
+
+
+def test_no_exclusion_parser_survives():
+    """The inverted reading is gone from the module, not just from the prompt."""
+    assert not hasattr(ih, "parse_exclusions")
+
+
+@pytest.mark.parametrize("size, expected", [
+    (1, "1"), (2, "1,2"), (3, "1,2"), (5, "1,2,5"), (9, "1,2,5,8"),
+])
+def test_example_answer_always_fits_the_menu(size, expected):
+    """An example citing line 8 of a 5-line menu teaches a format that fails."""
+    assert ih.example_answer(["x"] * size) == expected
 
 
 def test_skills_not_offered_when_numbers_already_has_every_slug(rich):
@@ -158,10 +178,20 @@ def test_offer_is_one_shot(homes):
 
 
 def test_decline_skips_import(homes):
-    # "all" LEAVES OUT every category -- nothing gets imported.
-    ih.run_import(print_fn=lambda *a, **k: None, prompt_fn=lambda _t: "all", ask=True)
+    # "none" is how you decline. ("all" used to mean this, by way of excluding
+    # every category -- the inversion that made the menu unreadable.)
+    ih.run_import(print_fn=lambda *a, **k: None, prompt_fn=lambda _t: "none", ask=True)
     dst = json.loads((homes["numbers"] / "auth.json").read_text(encoding="utf-8"))
     assert "deepseek" not in dst["credential_pool"]
+
+
+def test_accepting_imports_everything(homes):
+    """The mirror of the test above: "all" takes the lot."""
+    ih.run_import(print_fn=lambda *a, **k: None, prompt_fn=lambda _t: "all", ask=True)
+    dst = json.loads((homes["numbers"] / "auth.json").read_text(encoding="utf-8"))
+    assert "deepseek" in dst["credential_pool"]
+    # Numbers' own credential still wins over the imported one.
+    assert dst["credential_pool"]["anthropic"] == [{"key": "numbers-own"}]
 
 
 @pytest.fixture()
@@ -362,12 +392,14 @@ def test_all_and_none_are_explicit_choices():
     avail = ["providers", "skills", "env"]          # env is the advanced one
     sel = lambda answer: ih._prompt_selection(avail, lambda *a, **k: None,
                                               lambda _t: answer)
-    # 'all' EXCLUDES every category -- nothing is imported.
-    for answer in ("a", "all", "ALL", " all "):
-        assert sel(answer).categories == []
-    # 'none' excludes nothing -- same as Enter, everything is imported.
-    for answer in ("n", "none", "no", "skip", ""):
+    # 'all' and a bare Enter both take everything on the menu.
+    for answer in ("a", "all", "ALL", " all ", ""):
         assert sel(answer).categories == avail
+        assert not sel(answer).cancelled
+    # 'none' stops: nothing imported, and reported as a decision, not a miss.
+    for answer in ("n", "none", "no", "skip", "cancel"):
+        assert sel(answer).cancelled
+        assert sel(answer).categories == []
 
 
 def test_menu_shows_what_each_category_will_bring_in():
@@ -381,10 +413,27 @@ def test_menu_shows_what_each_category_will_bring_in():
 
     ih._prompt_selection(avail, lines.append, prompt_fn)
     rendered = "\n".join(lines)
-    assert "Importing everything from Hermes:" in rendered
+    assert "pick what to bring across" in rendered
     assert "1. Providers" in rendered and "4. Profiles" in rendered
-    # The prompt names what to leave OUT, not what to pick.
-    assert any("LEAVE OUT" in p for p in prompts)
+
+
+def test_menu_spells_out_the_answer_format():
+    """The format was left to be guessed from a hint inside the prompt."""
+    avail = ["providers", "skills", "memory", "profiles", "tasks"]
+    lines = []
+    ih._prompt_selection(avail, lines.append, lambda _t: "")
+    rendered = "\n".join(lines)
+    assert "separated by commas" in rendered
+    assert "1,2,5" in rendered              # a worked example, valid for this menu
+    assert "all" in rendered and "none" in rendered
+
+
+def test_three_unreadable_answers_cancel_rather_than_default():
+    """Guessing on the user's behalf is how an unattended terminal imports
+    a category it was never shown."""
+    spec = ih._prompt_selection(["providers", "skills"],
+                                lambda *a, **k: None, lambda _t: "wibble")
+    assert spec.cancelled and spec.categories == []
 
 
 def test_slash_command_reruns_after_the_offer_was_declined(homes):
@@ -396,7 +445,7 @@ def test_slash_command_reruns_after_the_offer_was_declined(homes):
     out = []
     ih.run_import_command(print_fn=lambda *a, **k: out.append(" ".join(map(str, a))),
                           prompt_fn=lambda _t: "1")
-    assert any("Importing everything from Hermes" in line for line in out)
+    assert any("pick what to bring across" in line for line in out)
 
 
 def test_slash_command_writes_the_guard(homes):
@@ -441,25 +490,84 @@ def test_menu_reasks_on_an_unparseable_answer():
     lines = []
     spec = ih._prompt_selection(avail, lines.append, lambda _t: next(answers),
                                 _catalog_fixture())
-    # "1" on the second try LEAVES OUT providers.
-    assert spec.categories == ["tasks"]
+    # "1" on the second try imports line 1.
+    assert spec.categories == ["providers"]
     assert any("not a category number" in ln for ln in lines)
 
 
-def test_menu_exclusion_out_of_range_reasks():
+def test_menu_out_of_range_reasks():
     avail = ["providers", "tasks"]
     answers = iter(["9", "2"])
     lines = []
     spec = ih._prompt_selection(avail, lines.append, lambda _t: next(answers),
                                 _catalog_fixture())
-    assert spec.categories == ["providers"]
+    assert spec.categories == ["tasks"]
     assert any("is not one of the categories" in ln for ln in lines)
 
 
-def test_exclusion_answer_reaches_the_importer(rich):
-    """End-to-end: the interactive "leave out" answer reaches the importer."""
-    # avail == ["providers", "skills", "memory", "config"]; "2" leaves out skills.
+def test_the_typed_answer_reaches_the_importer(rich):
+    """End-to-end: line 2 of the menu is the category that gets imported."""
+    # avail == ["providers", "skills", "memory", "config"]; "2" picks skills.
     ih.run_import(print_fn=lambda *a, **k: None, prompt_fn=lambda _t: "2", ask=True)
     auth = json.loads((rich["numbers"] / "auth.json").read_text(encoding="utf-8"))
-    assert "deepseek" in auth["credential_pool"]      # providers imported
-    assert not (rich["numbers"] / "skills" / "software-development" / "my-tool").exists()
+    assert "deepseek" not in auth["credential_pool"]   # providers NOT imported
+    assert (rich["numbers"] / "skills" / "software-development" / "my-tool").exists()
+
+
+def test_cancelling_the_menu_copies_nothing(rich):
+    out = []
+    rc = ih.run_import(print_fn=lambda *a, **k: out.append(" ".join(map(str, a))),
+                       prompt_fn=lambda _t: "none", ask=True)
+    assert rc == 0
+    assert any("cancelled" in line.lower() for line in out)
+    auth = json.loads((rich["numbers"] / "auth.json").read_text(encoding="utf-8"))
+    assert "deepseek" not in auth["credential_pool"]
+    assert not (rich["numbers"] / "skills" / "software-development").exists()
+
+
+def test_one_failing_category_does_not_end_the_import(rich, monkeypatch):
+    """A single unguarded loop meant the first failure ended the run wherever
+    it happened to be -- and offer_import() then swallowed the exception, so
+    the user saw one category copied, no error, and no summary."""
+    real = ih._run_category
+
+    def explode(key, nh, home, src):
+        if key == "skills":
+            raise OSError("disk went away")
+        return real(key, nh, home, src)
+
+    monkeypatch.setattr(ih, "_run_category", explode)
+    out = []
+    rc = ih.run_import(print_fn=lambda *a, **k: out.append(" ".join(map(str, a))),
+                       ask=False, selection=["providers", "skills", "memory"])
+    rendered = "\n".join(out)
+    assert rc == 0
+    assert "SKIPPED skills: disk went away" in rendered
+    # The categories on either side of the failure still ran.
+    auth = json.loads((rich["numbers"] / "auth.json").read_text(encoding="utf-8"))
+    assert "deepseek" in auth["credential_pool"]
+    assert (rich["numbers"] / "memories").exists()
+
+
+def test_import_context_matches_the_typed_menu(rich):
+    """The TUI picker builds itself from this; it must agree with the menu."""
+    ctx = ih.import_context()
+    nh, src = ctx["numbers_home"], ctx["sources"]
+    assert ctx["available"] == ih.available_categories(nh, src)
+    assert [key for key, _label, _detail in ctx["entries"]] == ctx["available"]
+    labels = {key: label for key, label, _d in ctx["entries"]}
+    assert labels["providers"] == "Providers"
+
+
+def test_offer_reports_a_failure_instead_of_swallowing_it(homes, monkeypatch):
+    def explode(*a, **k):
+        raise OSError("hermes home vanished mid-copy")
+
+    monkeypatch.setattr(ih, "run_import", explode)
+    out = []
+    ih.offer_import(print_fn=lambda *a, **k: out.append(" ".join(map(str, a))),
+                    prompt_fn=lambda _t: "")
+    rendered = "\n".join(out)
+    assert "hermes home vanished mid-copy" in rendered
+    # A failed offer must not burn the one-shot guard.
+    assert not (homes["numbers"] / ih.GUARD_NAME).exists()
