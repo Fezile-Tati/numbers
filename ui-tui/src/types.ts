@@ -128,6 +128,14 @@ export interface ClarifyReq {
   /** Answers already locked server-side (qid → answer): seeded from the
    *  reconnect replay, updated as the user locks each question. */
   answers?: Record<string, string>
+  /** RPC that resolves this prompt. Defaults to `clarify.respond`.
+   *
+   *  NUMBERS 21:4-9: a slash command running in the slash worker cannot read
+   *  stdin (it is the JSON-RPC channel), so its questions are bridged through
+   *  the same overlay and answered with `slash.prompt.respond` instead. The
+   *  widget, key bindings and cancel path are identical; only the responder
+   *  and the transcript treatment differ. */
+  respondMethod?: string
 }
 
 export interface Msg {

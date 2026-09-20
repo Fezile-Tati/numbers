@@ -10760,7 +10760,9 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             label = {"json": "JSON", "md": "Markdown", "html": "HTML"}[fmt]
             print(f"(^_^)v Conversation saved to: {path} ({label})")
             if self.session_id:
-                print(f"       Resume the live session with: hermes --resume {self.session_id}")
+                # NUMBERS 21:4-9: skin-driven; unskinned prints "hermes ...".
+                from hermes_cli._parser import _cli_prog_name
+                print(f"       Resume the live session with: {_cli_prog_name()} --resume {self.session_id}")
         except Exception as e:
             print(f"(x_x) Failed to save: {e}")
 
@@ -17996,9 +17998,14 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             profile_flag = (
                 "" if _active_profile in ("default", "custom") else f" -p {_active_profile}"
             )
-            print(f"  hermes --resume {self.session_id}{profile_flag}")
+            # NUMBERS 21:4-9: the command we tell the user to type has to be the
+            # one that exists on this install. Skin-driven, so an unskinned
+            # harness still prints "hermes ..." byte-identically.
+            from hermes_cli._parser import _cli_prog_name
+            _prog = _cli_prog_name()
+            print(f"  {_prog} --resume {self.session_id}{profile_flag}")
             if session_title:
-                print(f"  hermes -c \"{session_title}\"{profile_flag}")
+                print(f"  {_prog} -c \"{session_title}\"{profile_flag}")
             print()
             print(f"Session:        {self.session_id}")
             if session_title:

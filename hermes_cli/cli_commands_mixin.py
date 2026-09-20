@@ -4332,7 +4332,13 @@ class CLICommandsMixin:
 
         Returns "" rather than None so callers can treat "no answer" as the
         safe default (for /reset, that is cancel).
+
+        A front-end that has installed a remote prompt wins over both paths --
+        see ``_numbers_remote_answer``.
         """
+        remote = self._numbers_remote_answer(text)
+        if remote is not None:
+            return remote
         ask = getattr(self, "_prompt_text_input", None)
         if ask is not None:
             return ask(text) or ""
@@ -4340,6 +4346,29 @@ class CLICommandsMixin:
             return input(text) or ""
         except (EOFError, KeyboardInterrupt):
             return ""
+
+    @staticmethod
+    def _numbers_remote_answer(text: str):
+        """The front-end's answer to ``text``, or None if we own the terminal.
+
+        Split out of ``_numbers_prompt`` deliberately: this process may be the
+        slash worker, whose stdin is the gateway's JSON-RPC channel rather than
+        the user. Asking there with ``input()`` reads a protocol frame, and
+        ``_prompt_text_input`` returns None -- which is indistinguishable from
+        a bare Enter, so "could not ask" silently became "the user agreed".
+        That is what made /sign-in cancel itself and /import-hermes import
+        everything without showing its menu.
+
+        Returns None when no channel is installed, so the caller falls through
+        to the terminal paths unchanged.
+        """
+        try:
+            from numbers_ext import remote_prompt
+        except Exception:
+            return None  # stock checkout: numbers_ext is absent by design
+        if not remote_prompt.is_active():
+            return None
+        return remote_prompt.ask(text) or ""
 
     def _numbers_exit_after_reset(self) -> None:
         """Clean process exit after a reset (mirrors the /update relaunch path)."""

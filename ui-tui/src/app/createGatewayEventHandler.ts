@@ -1264,6 +1264,33 @@ export function createGatewayEventHandler(ctx: GatewayEventHandlerContext): (ev:
         return
       }
 
+      // NUMBERS 21:4-9: a slash command is asking the user something. The
+      // worker cannot prompt on its own, so the question arrives here and is
+      // shown in the clarify overlay -- already a free-text prompt with the
+      // right key bindings and cancel path. `pending_output` is whatever the
+      // command printed before asking; without it /sign-in's code prompt has
+      // no visible authorize link to answer from.
+      case 'slash.prompt.request': {
+        const pending = String(ev.payload.pending_output ?? '').trim()
+
+        if (pending) {
+          appendMessage({ role: 'system', text: pending })
+        }
+
+        patchOverlayState({
+          clarify: {
+            choices: null,
+            question: String(ev.payload.text ?? '').trim() || 'Your answer:',
+            requestId: ev.payload.request_id,
+            respondMethod: 'slash.prompt.respond'
+          }
+        })
+        setStatus('waiting for input…')
+        ringPromptBell()
+
+        return
+      }
+
       case 'approval.request': {
         const description = String(ev.payload.description ?? 'dangerous command')
         // Only an explicit false (tirith warning) drops the permanent-allow option.

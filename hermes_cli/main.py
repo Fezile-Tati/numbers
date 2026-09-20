@@ -2071,9 +2071,12 @@ def _print_tui_exit_summary(
 
     print()
     print("Resume this session with:")
-    print(f"  hermes --tui --resume {target}")
+    # NUMBERS 21:4-9: skin-driven program name; unskinned prints "hermes ...".
+    from hermes_cli._parser import _cli_prog_name
+    _prog = _cli_prog_name()
+    print(f"  {_prog} --tui --resume {target}")
     if title:
-        print(f'  hermes --tui -c "{title}"')
+        print(f'  {_prog} --tui -c "{title}"')
     print()
     print(f"Session:        {target}")
     if title:

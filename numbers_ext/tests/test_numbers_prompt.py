@@ -257,6 +257,54 @@ def test_import_says_so_when_there_is_nothing_to_take(monkeypatch):
     assert any("Nothing new to import" in line for line in cli.printed)
 
 
+# --- the remote channel wins over both terminal paths ----------------------
+# In the slash worker there is no terminal: _prompt_text_input returns None and
+# input() would read a JSON-RPC frame. Both were indistinguishable from a bare
+# Enter, so /sign-in cancelled itself and /import-hermes took every default.
+
+def test_remote_channel_is_preferred_over_stdin(monkeypatch):
+    from numbers_ext import remote_prompt
+
+    class _WorkerCLI(CLICommandsMixin):
+        def _prompt_text_input(self, text):  # must never be reached
+            raise AssertionError("read stdin while a remote channel was installed")
+
+    asked = []
+    monkeypatch.setattr(remote_prompt, "_asker", lambda t: (asked.append(t), "PDZ9RTGK")[1])
+    try:
+        assert _WorkerCLI()._numbers_prompt("paste the code: ") == "PDZ9RTGK"
+    finally:
+        remote_prompt.set_remote_prompt(None)
+    assert asked == ["paste the code: "]
+
+
+def test_an_unanswered_remote_prompt_is_empty_not_a_fallthrough(monkeypatch):
+    """None from the channel means nobody answered -> "" (cancel).
+
+    It must NOT fall through to stdin: in the worker that reads a protocol
+    frame and would hand the command a JSON blob as the user's answer.
+    """
+    from numbers_ext import remote_prompt
+
+    class _WorkerCLI(CLICommandsMixin):
+        def _prompt_text_input(self, text):
+            raise AssertionError("fell through to stdin after an unanswered prompt")
+
+    monkeypatch.setattr(remote_prompt, "_asker", lambda _t: None)
+    try:
+        assert _WorkerCLI()._numbers_prompt("code? ") == ""
+    finally:
+        remote_prompt.set_remote_prompt(None)
+
+
+def test_without_a_channel_the_terminal_paths_are_unchanged():
+    """A real terminal must behave exactly as it did before the channel existed."""
+    from numbers_ext import remote_prompt
+
+    remote_prompt.set_remote_prompt(None)
+    assert _FakeCLI("RESET")._numbers_prompt("Type RESET: ") == "RESET"
+
+
 def test_reset_explains_the_level_it_is_about_to_run(monkeypatch):
     """The erase list is printed after the choice, so it describes the level
     actually picked rather than both at once."""

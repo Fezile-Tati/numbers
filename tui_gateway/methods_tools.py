@@ -1321,8 +1321,32 @@ def _(rid, params: dict) -> dict:
                 except Exception as e:
                     return _err(rid, 5030, f"slash worker start failed: {e}")
 
+    # NUMBERS 21:4-9: let the command ask the user something.
+    #
+    # The worker cannot prompt on its own -- its stdin IS this JSON-RPC channel
+    # and its stdout is buffered until the command returns -- so /sign-in could
+    # never read its code and /import-hermes could never show its menu. Both
+    # read the resulting "no answer" as a cancel or a default. The question now
+    # comes back up as an intermediate message and is put to the user through
+    # _block, the same emit-and-wait bridge clarify/secret/sudo already use.
+    _prompt_sid = params.get("session_id", "")
+
+    def _on_prompt(prompt_payload: dict):
+        return _block(
+            "slash.prompt.request",
+            _prompt_sid,
+            {
+                "command": _cmd_base,
+                "text": str(prompt_payload.get("text") or ""),
+                # What the command printed before asking. /sign-in's code
+                # prompt is unanswerable without the authorize link above it.
+                "pending_output": str(prompt_payload.get("pending_output") or ""),
+            },
+            timeout=300,
+        )
+
     try:
-        output = worker.run(cmd)
+        output = worker.run(cmd, on_prompt=_on_prompt)
         warning = _mirror_slash_side_effects(params.get("session_id", ""), session, cmd)
         payload = {"output": output or "(no output)"}
         if warning:

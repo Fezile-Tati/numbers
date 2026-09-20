@@ -90,7 +90,53 @@ def _start_parent_death_watchdog(original_ppid) -> None:
     threading.Thread(target=_loop, daemon=True).start()
 
 
-def _run(cli: HermesCLI, command: str) -> str:
+def _make_remote_prompt(rid, buf: io.StringIO):
+    """Build the callback that asks the TUI a question mid-command.
+
+    The worker's stdin is this protocol, and its stdout is captured into ``buf``
+    until the command finishes -- so a command cannot ask the user anything by
+    itself. Here the question goes UP the same protocol as an intermediate
+    message (no ``ok`` key, which is what distinguishes it from a completion),
+    and the answer comes back on the next stdin line.
+
+    ``buf`` is drained into the payload because the question is meaningless
+    without what was printed before it: /sign-in's code prompt is unanswerable
+    unless the user has seen the authorize link that produced the code. Draining
+    (not copying) keeps that text from being repeated in the final output.
+
+    Reading stdin here is safe: ``main()`` is single-threaded and is blocked in
+    ``_run`` for the duration, so nothing else is competing for the pipe.
+    """
+
+    def _ask(text: str):
+        pending = buf.getvalue()
+        buf.seek(0)
+        buf.truncate(0)
+        sys.stdout.write(json.dumps({
+            "id": rid,
+            "prompt": {"text": text, "pending_output": pending},
+        }) + "\n")
+        sys.stdout.flush()
+        while True:
+            line = sys.stdin.readline()
+            if not line:
+                return None  # pipe closed mid-question: unanswered, not empty
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                msg = json.loads(line)
+            except Exception:
+                continue
+            if msg.get("id") != rid or "answer" not in msg:
+                continue
+            answer = msg.get("answer")
+            return None if answer is None else str(answer)
+
+    return _ask
+
+
+def _run(cli: HermesCLI, command: str, rid=None) -> str:
     cmd = (command or "").strip()
     if not cmd:
         return ""
@@ -108,10 +154,24 @@ def _run(cli: HermesCLI, command: str) -> str:
     if old is not None:
         cli_mod._cprint = lambda text: print(text)
 
+    # Give interactive commands (/sign-in, /import-hermes, /reset) a way to
+    # reach the user. Absent this they get None from every prompt path, which
+    # is also what a bare Enter returns -- so they cancelled themselves or
+    # silently took the default. Cleared in the finally: the channel is only
+    # valid while this command holds the pipe.
+    try:
+        from numbers_ext import remote_prompt
+    except Exception:
+        remote_prompt = None  # stock checkout: numbers_ext is absent by design
+    if remote_prompt is not None and rid is not None:
+        remote_prompt.set_remote_prompt(_make_remote_prompt(rid, buf))
+
     try:
         with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
             cli.process_command(cmd)
     finally:
+        if remote_prompt is not None:
+            remote_prompt.set_remote_prompt(None)
         if old is not None:
             cli_mod._cprint = old
 
@@ -167,7 +227,7 @@ def main():
         try:
             req = json.loads(line)
             rid = req.get("id")
-            out = _run(cli, req.get("command", ""))
+            out = _run(cli, req.get("command", ""), rid=rid)
             sys.stdout.write(json.dumps({"id": rid, "ok": True, "output": out}) + "\n")
             sys.stdout.flush()
         except Exception as e:

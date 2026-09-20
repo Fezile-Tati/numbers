@@ -1737,6 +1737,15 @@ def _(rid, params: dict) -> dict:
     return _respond(rid, params, "answer", allow_expired=True)
 
 
+@method("slash.prompt.respond")
+def _(rid, params: dict) -> dict:
+    # NUMBERS 21:4-9: the answer to a question asked by a slash command running
+    # in the slash worker. allow_expired=True for the same reason as clarify:
+    # the worker's wait is bounded, so a user who finishes typing just after
+    # the deadline must resolve gracefully rather than hit the raw 4009.
+    return _respond(rid, params, "answer", allow_expired=True)
+
+
 @method("terminal.read.respond")
 def _(rid, params: dict) -> dict:
     # `text` is a JSON string of the serialized terminal buffer + line metadata.

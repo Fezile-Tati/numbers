@@ -564,7 +564,16 @@ class _SlashWorker:
             if text := line.rstrip("\n"):
                 self.stderr_tail = (self.stderr_tail + [text])[-80:]
 
-    def run(self, command: str) -> str:
+    def run(self, command: str, on_prompt=None) -> str:
+        """Run one slash command, answering any question it asks along the way.
+
+        ``on_prompt(payload) -> str | None`` is called when the worker sends an
+        intermediate ``{"id", "prompt"}`` message instead of a completion. It
+        must return the user's answer, or None for "nobody answered" -- which
+        the command then reads as a cancel, i.e. exactly the behaviour that
+        existed before there was a prompt channel at all. A front-end that does
+        not implement prompting therefore degrades, it does not break.
+        """
         if self.proc.poll() is not None:
             raise RuntimeError("slash worker exited")
 
@@ -574,6 +583,10 @@ class _SlashWorker:
             self.proc.stdin.write(json.dumps({"id": rid, "command": command}) + "\n")
             self.proc.stdin.flush()
 
+            # The human wait happens inside on_prompt(), not inside this
+            # queue.get(), so the worker-liveness timeout never spans it: each
+            # get() is only ever waiting on the worker, which replies promptly
+            # once the answer is written back. on_prompt owns its own timeout.
             while True:
                 try:
                     msg = self.stdout_queue.get(timeout=_SLASH_WORKER_TIMEOUT_S)
@@ -582,6 +595,17 @@ class _SlashWorker:
                 if msg is None:
                     break
                 if msg.get("id") != rid:
+                    continue
+                if "prompt" in msg:
+                    answer = None
+                    if on_prompt is not None:
+                        try:
+                            answer = on_prompt(msg.get("prompt") or {})
+                        except Exception:
+                            answer = None
+                    self.proc.stdin.write(
+                        json.dumps({"id": rid, "answer": answer}) + "\n")
+                    self.proc.stdin.flush()
                     continue
                 if not msg.get("ok"):
                     raise RuntimeError(msg.get("error", "slash worker failed"))
@@ -4943,6 +4967,11 @@ def _block(
         "window.read.request",
         "mcp.setup.request",
         "tour.request",
+        # NUMBERS 21:4-9: a slash command asking the user a question. Same
+        # lifecycle as the rest -- the worker gives up and the command cancels,
+        # but a user who answers just after the deadline must not get a raw
+        # 4009 "no pending request" string in the chat.
+        "slash.prompt.request",
     }:
         _emit(
             f"{event.removesuffix('.request')}.expire",

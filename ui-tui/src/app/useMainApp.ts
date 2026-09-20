@@ -694,12 +694,27 @@ export function useMainApp(gw: GatewayClient) {
         return
       }
 
+      // NUMBERS 21:4-9: a slash command's question borrows this overlay but is
+      // not a turn of the conversation. Echoing the answer as a user message
+      // would put a sign-in code in the transcript and claim the agent is
+      // running, so that path resolves quietly and only the RPC differs.
+      const respondMethod = clarify.respondMethod ?? 'clarify.respond'
+      const isSlashPrompt = respondMethod !== 'clarify.respond'
+
+      if (isSlashPrompt) {
+        rpc<ClarifyRespondResponse>(respondMethod, { answer, request_id: clarify.requestId }).then(() => {
+          patchOverlayState({ clarify: null })
+        })
+
+        return
+      }
+
       const label = toolTrailLabel('clarify')
 
       turnController.turnTools = turnController.turnTools.filter(line => !sameToolTrailGroup(label, line))
       patchTurnState({ turnTrail: turnController.turnTools })
 
-      rpc<ClarifyRespondResponse>('clarify.respond', { answer, request_id: clarify.requestId }).then(r => {
+      rpc<ClarifyRespondResponse>(respondMethod, { answer, request_id: clarify.requestId }).then(r => {
         if (!r) {
           return
         }

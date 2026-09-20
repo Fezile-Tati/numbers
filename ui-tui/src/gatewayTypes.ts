@@ -726,6 +726,23 @@ export type GatewayEvent =
       type: 'clarify.request'
     }
   | {
+      /** NUMBERS 21:4-9: a slash command running in the slash worker asking
+       *  the user something. It cannot read stdin (that is the JSON-RPC
+       *  channel), so the question comes up the protocol and is answered with
+       *  `slash.prompt.respond`. */
+      payload: {
+        /** The bare command name, for labelling (e.g. `sign-in`). */
+        command?: string
+        /** What the command printed before asking — the question is not
+         *  answerable without it (e.g. /sign-in's authorize link). */
+        pending_output?: string
+        request_id: string
+        text?: string
+      }
+      session_id?: string
+      type: 'slash.prompt.request'
+    }
+  | {
       payload: {
         allow_permanent?: boolean
         choices?: string[]
