@@ -40,6 +40,11 @@ API_CLIENT_ID = "numbers-cli"
 PENDING_NAME = ".device-auth-pending.json"
 PENDING_TTL_S = 600
 
+# Answered-once marker for the first-run "you have no Angel token" notice.
+# Mirrors import_hermes.GUARD_NAME: the offer is a courtesy on a bare `numbers`,
+# not something to re-ask on every launch forever.
+CONNECT_OFFER_GUARD = ".angel_token_offer_done"
+
 
 def _hub_base() -> str:
     """NUMBERS_HUB_URL, read lazily so setting it after import still takes
@@ -561,6 +566,65 @@ def run_logout(print_fn: Callable = print, hub_base: Optional[str] = None,
     print_fn("  Revoke it at Settings -> Agent Tokens to disable it everywhere.")
 
 
+def has_agent_token() -> bool:
+    """Whether this install already holds an Angel token.
+
+    Same precedence the MCP child uses (cmd/numbers-mcp/token.go): the env var
+    first, then $NUMBERS_HOME/agent-token. Anything that makes the answer
+    unknowable -- an unset or unmarked home -- counts as "has one", so a
+    misconfigured install is never nagged about a token it cannot store.
+    """
+    if os.environ.get("NUMBERS_AGENT_TOKEN", "").strip():
+        return True
+    try:
+        home_dir = home.require_numbers_home()
+    except Exception:
+        return True
+    try:
+        return (home_dir / "agent-token").read_text(encoding="utf-8").strip() != ""
+    except Exception:
+        return False
+
+
+def offer_connect(print_fn: Callable = print) -> int:
+    """First-run, guarded notice that the Angel tools need a token.
+
+    Without a token the MCP server starts in its degraded mode and registers
+    zero tools (cmd/numbers-mcp buildServer -> mcpserver.NewDegraded), which is
+    not an error and says nothing -- so the agent simply has no way to read the
+    user's Intersession data and cannot explain why. This is the one place that
+    says so out loud, once.
+
+    Deliberately prints rather than prompts: it runs from the launcher ahead of
+    the user's actual command, where blocking for input would hold up startup,
+    and both routes out of it are commands the user runs themselves anyway.
+    Guarded like the Hermes-import offer, so it asks once and then stops.
+    """
+    try:
+        home_dir = home.require_numbers_home()
+    except Exception:
+        return 0  # not a Numbers home: nothing to offer, nothing to remember
+    guard = home_dir / CONNECT_OFFER_GUARD
+    if guard.exists() or has_agent_token():
+        return 0
+    print_fn("")
+    print_fn(f"{BOLD}NUMBERS is not connected to Intersession yet.{RST}")
+    print_fn("Until it is, the angel tools that read your own stories, blogs and")
+    print_fn("pages are not loaded. Two ways to connect:")
+    print_fn("")
+    print_fn(f"  {BOLD}numbers signin{RST}           opens a browser, then paste the code it shows")
+    print_fn(f"  {BOLD}numbers connect <TOKEN>{RST}  a token from Settings -> Agent Tokens")
+    print_fn("")
+    print_fn(f"{DIM}Only needed if you want the angel tools. Everything else works "
+             f"without it. This notice will not appear again.{RST}")
+    print_fn("")
+    try:
+        guard.write_text("shown\n", encoding="utf-8")
+    except Exception:
+        pass  # a home we cannot write to just means it is offered again
+    return 0
+
+
 def main(argv: Optional[list] = None) -> int:
     """`python -m numbers_ext.device_auth signin|logout` — the CLI sign-in entry.
 
@@ -571,12 +635,21 @@ def main(argv: Optional[list] = None) -> int:
 
     ap = argparse.ArgumentParser(prog="numbers auth",
                                  description="Sign in to enable the Angel MCP tools")
-    ap.add_argument("action", choices=["signin", "sign-in", "login", "logout", "connect"])
+    ap.add_argument("action", choices=["signin", "sign-in", "login", "logout",
+                                       "connect", "offer"])
     ap.add_argument("token", nargs="?", default="",
                     help="agent token for connect (numbers connect <TOKEN>), or "
                          "the code from the authorize page for signin "
                          "(numbers signin <CODE>)")
     args = ap.parse_args(argv)
+    # The launcher runs `offer` ahead of the user's own command on a bare
+    # `numbers`, so it must never fail the process -- including on a home that
+    # is not a Numbers home, which require_numbers_home below would reject.
+    if args.action == "offer":
+        try:
+            return offer_connect()
+        except Exception:
+            return 0
     try:
         home.require_numbers_home()
         if args.action == "logout":

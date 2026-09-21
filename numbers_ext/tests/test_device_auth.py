@@ -422,3 +422,60 @@ def test_a3_import_hermes_readers_never_write_the_personal_home(tmp_path):
     after = {p.name: p.read_bytes() for p in personal.iterdir() if p.is_file()}
     assert after == before, "the personal Hermes home must never be modified by the import"
     assert isinstance(providers, dict) and isinstance(model, dict)
+
+
+# --- the first-run "you have no token" notice ------------------------------
+# Without a token the MCP child registers zero tools and says nothing, so the
+# agent reads as broken rather than unconnected. The notice is the one place
+# that says so -- once, and never when a token is already present.
+
+def test_the_offer_is_shown_once_and_then_remembered(marked_home, monkeypatch):
+    monkeypatch.delenv("NUMBERS_AGENT_TOKEN", raising=False)
+    out = []
+    da.offer_connect(print_fn=lambda *a: out.append(" ".join(map(str, a))))
+    screen = "\n".join(out)
+    assert "numbers signin" in screen
+    assert "numbers connect <TOKEN>" in screen
+    assert (marked_home / da.CONNECT_OFFER_GUARD).exists()
+
+    out.clear()
+    da.offer_connect(print_fn=lambda *a: out.append(" ".join(map(str, a))))
+    assert out == [], "the offer asked a second time"
+
+
+def test_no_offer_when_a_token_file_is_already_present(marked_home, monkeypatch):
+    monkeypatch.delenv("NUMBERS_AGENT_TOKEN", raising=False)
+    (marked_home / "agent-token").write_text("tok-abc\n", encoding="utf-8")
+    out = []
+    da.offer_connect(print_fn=lambda *a: out.append(" ".join(map(str, a))))
+    assert out == []
+
+
+def test_no_offer_when_the_token_is_in_the_environment(marked_home, monkeypatch):
+    monkeypatch.setenv("NUMBERS_AGENT_TOKEN", "tok-env")
+    out = []
+    da.offer_connect(print_fn=lambda *a: out.append(" ".join(map(str, a))))
+    assert out == []
+
+
+def test_an_empty_token_file_still_counts_as_unconnected(marked_home, monkeypatch):
+    """A truncated write must not silently pass for a working install."""
+    monkeypatch.delenv("NUMBERS_AGENT_TOKEN", raising=False)
+    (marked_home / "agent-token").write_text("\n", encoding="utf-8")
+    assert da.has_agent_token() is False
+
+
+def test_an_unmarked_home_is_never_nagged(tmp_path, monkeypatch):
+    """Offering a token to a home that cannot store one helps nobody."""
+    monkeypatch.setenv("NUMBERS_HOME", str(tmp_path))  # no marker
+    monkeypatch.delenv("NUMBERS_AGENT_TOKEN", raising=False)
+    out = []
+    assert da.offer_connect(print_fn=lambda *a: out.append(" ".join(map(str, a)))) == 0
+    assert out == []
+
+
+def test_the_offer_entry_point_never_fails_the_launcher(tmp_path, monkeypatch):
+    """It runs ahead of the user's own command; a bad home must not exit 3."""
+    monkeypatch.setenv("NUMBERS_HOME", str(tmp_path))  # no marker
+    monkeypatch.delenv("NUMBERS_AGENT_TOKEN", raising=False)
+    assert da.main(["offer"]) == 0

@@ -129,6 +129,13 @@ Examples:
     numbers dashboard --stop       Stop running dashboard processes
     numbers dashboard --status     List running dashboard processes
 
+Intersession (Angel tools):
+    hermes signin                  Sign in to Intersession (opens a browser)
+    hermes signin <CODE>           Finish sign-in with the code from that page
+    hermes connect <TOKEN>         Connect using a token from Settings -> Agent Tokens
+    hermes logout                  Disconnect this device and revoke its token
+    hermes mcp                     Run the Angel MCP server directly
+
 For more help on a command:
     hermes <command> --help
 """
