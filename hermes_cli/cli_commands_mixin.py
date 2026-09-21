@@ -4190,25 +4190,19 @@ class CLICommandsMixin:
         resetting, NUMBERS still recalls my provider") -- it was working as
         designed, and the missing thing was the choice.
 
-        Confirmation goes through the prompt_toolkit modal, NOT stdin. Slash
-        commands are dispatched from the process_loop daemon thread, where any
-        input() deadlocks against prompt_toolkit's stdin ownership (#33961) --
-        which showed up as a bare "> ", "aclose(): asynchronous generator is
-        already running" and "Press ENTER to continue...".
+        Confirmation goes through ``_numbers_choice``, never a bare stdin read.
+        Slash commands are dispatched from the process_loop daemon thread,
+        where any input() deadlocks against prompt_toolkit's stdin ownership
+        (#33961) -- which showed up as a bare "> ", "aclose(): asynchronous
+        generator is already running" and "Press ENTER to continue...".
         """
         from cli import _cprint
         from numbers_ext.reset import (FULL_RESET_CONFIRM, RESET_CHOICES,
                                        RESET_DETAIL, describe_reset,
-                                       perform_reset, run_reset)
+                                       perform_reset)
 
-        modal = getattr(self, "_prompt_text_input_modal", None)
-        if modal is None:  # no TUI running (tests, piped stdin): plain prompt
-            if run_reset(print_fn=_cprint, prompt_fn=self._numbers_prompt):
-                self._numbers_exit_after_reset()
-            return
-
-        choice = modal(title="Reset NUMBERS", detail=RESET_DETAIL,
-                       choices=RESET_CHOICES)
+        choice = self._numbers_choice(title="Reset NUMBERS", detail=RESET_DETAIL,
+                                      choices=RESET_CHOICES)
         if choice not in ("light", "full"):  # None == cancelled or timed out
             _cprint("Cancelled - nothing was erased.")
             return
@@ -4221,9 +4215,9 @@ class CLICommandsMixin:
             # Erasing providers and API keys is the one step here that costs
             # real work to undo, so it is confirmed a second time -- this time
             # against the list the user has just read.
-            if modal(title="Erase providers and API keys?",
-                     detail=RESET_DETAIL,
-                     choices=FULL_RESET_CONFIRM) != "full":
+            if self._numbers_choice(title="Erase providers and API keys?",
+                                    detail=RESET_DETAIL,
+                                    choices=FULL_RESET_CONFIRM) != "full":
                 _cprint("Cancelled - nothing was erased.")
                 return
         if perform_reset(print_fn=_cprint, full=full):
@@ -4235,21 +4229,30 @@ class CLICommandsMixin:
         The first-run offer only fires once; this is the way back in for anyone
         who declined it or changed their mind.
 
-        Selection goes through the prompt_toolkit modal, NOT the typed menu the
-        bare `numbers` launcher uses. Slash commands are dispatched from the
-        process_loop daemon thread, where ``_prompt_text_input`` cannot safely
-        own stdin and so returns None by design (#23185). An unanswerable
-        prompt read as an empty line, and an empty line means "import
-        everything" -- so /import-hermes silently copied every category
-        without ever showing the question. Consent has to come from a channel
-        the TUI can actually deliver, which is the same modal /reset uses.
+        Consent has to come from a channel this process can actually deliver.
+        Slash commands are dispatched from the process_loop daemon thread,
+        where ``_prompt_text_input`` cannot safely own stdin and so returns
+        None by design (#23185). An unanswerable prompt read as an empty line,
+        and an empty line means "import everything" -- so /import-hermes
+        silently copied every category without ever showing the question.
+
+        Two channels can deliver it, and which one is right depends on who
+        owns the terminal. In the in-process TUI that is the prompt_toolkit
+        modal. In the slash worker there is no prompt_toolkit app at all, so
+        the modal falls back to a bare ``input()`` on the gateway's JSON-RPC
+        pipe -- it answered the menu with the NEXT command the user typed,
+        which is why the import appeared to hang and its output surfaced one
+        command late. There the typed menu over the remote prompt is the only
+        path that reaches the user, and it asks the same question in one round
+        trip: its numbering matches the modal's line for line.
         """
         from cli import _cprint
         from numbers_ext.import_hermes import (import_context, run_import,
                                                run_import_command)
 
-        modal = getattr(self, "_prompt_text_input_modal", None)
-        if modal is None:  # no TUI running (tests, piped stdin): typed menu
+        modal = (None if self._numbers_remote_active()
+                 else getattr(self, "_prompt_text_input_modal", None))
+        if modal is None:  # front-end owns the prompt, or no TUI at all
             try:
                 run_import_command(print_fn=_cprint, prompt_fn=self._numbers_prompt)
             except (EOFError, KeyboardInterrupt):
@@ -4317,6 +4320,64 @@ class CLICommandsMixin:
             (_numbers_home() / GUARD_NAME).write_text("done\n", encoding="utf-8")
         except Exception:
             pass  # a home we cannot write to just means the offer asks again
+
+    @staticmethod
+    def _numbers_remote_active() -> bool:
+        """Whether a front-end -- not this process's terminal -- owns prompts.
+
+        True inside the slash worker, where there is no prompt_toolkit app and
+        stdin is the gateway's JSON-RPC pipe. Handlers use it to pick a channel
+        that can actually reach the user; see ``_numbers_remote_answer``.
+        """
+        try:
+            from numbers_ext import remote_prompt
+        except Exception:
+            return False  # stock checkout: numbers_ext is absent by design
+        return remote_prompt.is_active()
+
+    def _numbers_choice(self, *, title: str, detail: str, choices: list,
+                        timeout: float = 120):
+        """Ask a one-of-N question over whichever channel reaches the user.
+
+        ``_prompt_text_input_modal`` is a method, so ``getattr`` never returns
+        None and the handlers took it unconditionally -- including in the slash
+        worker, where its documented no-app fallback is a bare ``input()`` on
+        the JSON-RPC pipe. That read consumed the next command the user typed
+        and answered this question with it.
+
+        With a remote channel installed the same choices are printed as a
+        numbered menu and answered in one round trip. Returns the chosen key,
+        or None for cancel (an empty or unrecognised answer).
+        """
+        if not self._numbers_remote_active():
+            modal = getattr(self, "_prompt_text_input_modal", None)
+            if modal is None:  # no modal and no channel: nothing can be asked
+                return None
+            return modal(title=title, detail=detail, choices=choices,
+                         timeout=timeout)
+
+        from cli import _cprint
+
+        _cprint("")
+        _cprint(title)
+        if detail:
+            _cprint(f"  {detail}")
+        _cprint("")
+        for i, (_key, label, note) in enumerate(choices, 1):
+            _cprint(f"  {i}. {label}" + (f"  -- {note}" if note else ""))
+        _cprint("")
+        raw = (self._numbers_prompt(
+            f"Choose 1-{len(choices)} [Enter = cancel]: ") or "").strip()
+        if not raw:
+            return None
+        if raw.isdigit() and 1 <= int(raw) <= len(choices):
+            return choices[int(raw) - 1][0]
+        # Accept the key or the label as typed, so "full" works as well as "2".
+        low = raw.lower()
+        for key, label, _note in choices:
+            if low in (str(key).lower(), str(label).lower()):
+                return key
+        return None
 
     def _numbers_prompt(self, text: str) -> str:
         """Read one line from the user without breaking the TUI.

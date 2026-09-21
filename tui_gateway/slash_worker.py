@@ -104,21 +104,30 @@ def _make_remote_prompt(rid, buf: io.StringIO):
     unless the user has seen the authorize link that produced the code. Draining
     (not copying) keeps that text from being repeated in the final output.
 
+    The pipe is bound HERE, at construction, not read from ``sys.stdout`` when
+    the question is asked. ``_run`` calls this before entering its
+    ``redirect_stdout(buf)`` block, so at ask time ``sys.stdout`` IS ``buf`` --
+    a late lookup wrote the question into the capture buffer the gateway never
+    reads, and the worker then blocked on ``sys.stdin.readline()`` until the
+    slash-worker timeout fired. The symptom was an import that hung on its
+    first category and a /sign-in that never asked for its code.
+
     Reading stdin here is safe: ``main()`` is single-threaded and is blocked in
     ``_run`` for the duration, so nothing else is competing for the pipe.
     """
+    pipe_out, pipe_in = sys.stdout, sys.stdin
 
     def _ask(text: str):
         pending = buf.getvalue()
         buf.seek(0)
         buf.truncate(0)
-        sys.stdout.write(json.dumps({
+        pipe_out.write(json.dumps({
             "id": rid,
             "prompt": {"text": text, "pending_output": pending},
         }) + "\n")
-        sys.stdout.flush()
+        pipe_out.flush()
         while True:
-            line = sys.stdin.readline()
+            line = pipe_in.readline()
             if not line:
                 return None  # pipe closed mid-question: unanswered, not empty
             line = line.strip()

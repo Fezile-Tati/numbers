@@ -120,6 +120,45 @@ def test_a_closed_pipe_is_unanswered_not_empty():
     assert answer is None
 
 
+def test_the_question_survives_the_commands_stdout_capture():
+    """The question must reach the PIPE, not the buffer the command prints to.
+
+    ``_run`` builds this callback and then runs the command inside
+    ``redirect_stdout(buf)``, so at ask time ``sys.stdout`` IS ``buf``. A
+    callback that looked ``sys.stdout`` up when asked therefore wrote the
+    question into the capture buffer the gateway never reads, and then blocked
+    on stdin until the slash-worker timeout fired -- an import that hung on its
+    first category, and a /sign-in that never asked for its code.
+    """
+    import contextlib
+    import sys
+
+    from tui_gateway import slash_worker
+
+    buf = io.StringIO()
+    pipe = io.StringIO()
+
+    class _Stdin:
+        def readline(self_inner):
+            return json.dumps({"id": 11, "answer": "ESR34P9T"}) + "\n"
+
+    real_out, real_in = sys.stdout, sys.stdin
+    sys.stdout, sys.stdin = pipe, _Stdin()
+    try:
+        ask = slash_worker._make_remote_prompt(11, buf)
+        # Exactly what _run does: the command's stdout is the capture buffer.
+        with contextlib.redirect_stdout(buf):
+            answer = ask("2) paste the code: ")
+    finally:
+        sys.stdout, sys.stdin = real_out, real_in
+
+    assert answer == "ESR34P9T"
+    frame = json.loads(pipe.getvalue().strip())
+    assert frame["id"] == 11
+    # The buffer holds the command's output, never the protocol frame.
+    assert "prompt" not in buf.getvalue()
+
+
 def test_frames_for_other_commands_are_ignored():
     """A stale or interleaved frame must not be mistaken for this answer."""
     from tui_gateway import slash_worker

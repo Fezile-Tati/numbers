@@ -9188,9 +9188,12 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                 _untrusted = get_untrusted_project_skills_root()
                 if _untrusted is not None:
                     _root, _n = _untrusted
+                    # NUMBERS 21:4-9: skin-driven program name; an
+                    # unskinned harness still prints "hermes ...".
+                    from hermes_cli._parser import _cli_prog_name
                     self._console_print(
                         f"[yellow]◆ {_n} project skill(s) found in {_root} but not "
-                        f"loaded — run `hermes skills trust` to enable them.[/]"
+                        f"loaded — run `{_cli_prog_name()} skills trust` to enable them.[/]"
                     )
         except Exception:
             logger.debug("project skills banner notice failed", exc_info=True)

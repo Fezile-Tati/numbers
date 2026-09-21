@@ -899,6 +899,27 @@ def load_skin(name: str) -> SkinConfig:
         if data:
             return _build_skin_config(data)
 
+    # NUMBERS-FORK-BEGIN: skin-profile-lookup
+    # NUMBERS 21:4-9: a profile home has no skins/ of its own, so a skin the
+    # installer wrote into the install root cannot be found from inside
+    # `numbers -p <name>` -- _skins_dir() resolves against HERMES_HOME, which
+    # the profile override has already re-pointed. Fall back to the install
+    # root (NUMBERS_HOME, which the override does not touch). Returns None off
+    # a profile and on a stock checkout, so this is a no-op for both.
+    try:
+        from numbers_ext.skin_home import fallback_skins_dir
+
+        _numbers_root_skins = fallback_skins_dir()
+    except Exception:
+        _numbers_root_skins = None
+    if _numbers_root_skins is not None:
+        _numbers_root_file = _numbers_root_skins / f"{name}.yaml"
+        if _numbers_root_file.is_file():
+            data = _load_skin_from_yaml(_numbers_root_file)
+            if data:
+                return _build_skin_config(data)
+    # NUMBERS-FORK-END: skin-profile-lookup
+
     # Check built-in skins
     if name in _BUILTIN_SKINS:
         return _build_skin_config(_BUILTIN_SKINS[name])
@@ -938,6 +959,24 @@ def init_skin_from_config(config: dict) -> None:
     if not isinstance(display, dict):
         display = {}
     skin_name = display.get("skin", "default")
+    # NUMBERS-FORK-BEGIN: skin-profile-name
+    # NUMBERS 21:4-9: a profile's config.yaml carries no display.skin (the
+    # importer treats `display` as a Numbers-owned branding key and never
+    # copies it), so `numbers -p <name>` fell back to "default" and rendered
+    # the whole CLI -- banner, prompt, --help, every "run `hermes ...`" hint --
+    # as stock Hermes. Inherit the install root's skin instead. Returns None
+    # off a profile and on a stock checkout, so this is a no-op for both.
+    if not (isinstance(skin_name, str) and skin_name.strip()) or skin_name.strip() == "default":
+        try:
+            from numbers_ext.skin_home import fallback_skin_name
+
+            _numbers_inherited = fallback_skin_name()
+        except Exception:
+            _numbers_inherited = None
+        if _numbers_inherited:
+            skin_name = _numbers_inherited
+    # NUMBERS-FORK-END: skin-profile-name
+
     if isinstance(skin_name, str) and skin_name.strip():
         set_active_skin(skin_name.strip())
     else:

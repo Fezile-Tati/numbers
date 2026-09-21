@@ -305,6 +305,80 @@ def test_without_a_channel_the_terminal_paths_are_unchanged():
     assert _FakeCLI("RESET")._numbers_prompt("Type RESET: ") == "RESET"
 
 
+# --- a front-end channel beats the modal, which cannot ask from the worker --
+# _prompt_text_input_modal is a method, so getattr never returns None and the
+# handlers took it unconditionally -- including in the slash worker, where
+# there is no prompt_toolkit app and the modal's documented no-app fallback is
+# a bare input() on the gateway's JSON-RPC pipe. That read consumed the NEXT
+# command the user typed and answered the menu with it, which is why
+# /import-hermes appeared to hang and its output surfaced one command late.
+
+def test_import_uses_the_typed_menu_when_a_front_end_owns_the_prompt(monkeypatch):
+    import numbers_ext.import_hermes as ih
+    from numbers_ext import remote_prompt
+
+    cli = _FakeTUI("__import__")        # a modal answer that must never be used
+    calls = []
+    monkeypatch.setattr(remote_prompt, "_asker", lambda _t: "1")
+    monkeypatch.setattr(ih, "run_import_command",
+                        lambda print_fn=print, prompt_fn=None: calls.append("menu"))
+    monkeypatch.setitem(__import__("sys").modules, "cli",
+                        type("m", (), {"_cprint": cli.printed.append}))
+    try:
+        cli._handle_import_hermes_command("/import-hermes")
+    finally:
+        remote_prompt.set_remote_prompt(None)
+
+    assert cli.modal_kwargs is None, "/import-hermes opened a modal it cannot answer"
+    assert calls == ["menu"]
+
+
+def test_reset_asks_over_the_channel_when_one_is_installed(monkeypatch):
+    from numbers_ext import remote_prompt
+
+    cli = _FakeTUI(None)               # the modal would answer None == cancel
+    monkeypatch.setattr(remote_prompt, "_asker", lambda _t: "1")   # line 1: light
+    try:
+        performed = _run_reset_handler(cli, monkeypatch)
+    finally:
+        remote_prompt.set_remote_prompt(None)
+
+    assert cli.modal_kwargs is None, "/reset opened a modal it cannot answer"
+    assert performed == [False]        # the light level, actually reached
+    screen = "\n".join(cli.printed)
+    # The choices are on screen as a numbered menu, so "1" means something.
+    assert "1. Erase my conversations and memory" in screen
+    assert "2. Full factory reset" in screen
+
+
+def test_channel_choice_accepts_the_key_as_well_as_the_number(monkeypatch):
+    from numbers_ext import remote_prompt
+
+    cli = _FakeTUI(None)
+    monkeypatch.setattr(remote_prompt, "_asker", lambda _t: "full")
+    try:
+        performed = _run_reset_handler(cli, monkeypatch)
+    finally:
+        remote_prompt.set_remote_prompt(None)
+    assert performed == [True]         # both confirmations answered "full"
+
+
+def test_an_unanswered_channel_choice_cancels(monkeypatch):
+    """Enter, ESC or an unreadable answer must erase nothing."""
+    from numbers_ext import remote_prompt
+
+    for answer in ("", None, "not-a-choice"):
+        cli = _FakeTUI(None)
+        monkeypatch.setattr(remote_prompt, "_asker", lambda _t, a=answer: a)
+        try:
+            performed = _run_reset_handler(cli, monkeypatch)
+        finally:
+            remote_prompt.set_remote_prompt(None)
+        assert performed == []
+        assert cli.exited is False
+        assert any("Cancelled" in line for line in cli.printed)
+
+
 def test_reset_explains_the_level_it_is_about_to_run(monkeypatch):
     """The erase list is printed after the choice, so it describes the level
     actually picked rather than both at once."""
