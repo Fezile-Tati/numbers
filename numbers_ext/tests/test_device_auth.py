@@ -78,6 +78,78 @@ def test_sign_in_cancelled_writes_nothing(hub, marked_home, monkeypatch):
     assert not (marked_home / "agent-token").exists()
 
 
+# --- the two-step flow: /sign-in, then /sign-in <code> ---------------------
+#
+# The classic CLI cannot ask for the code at all: slash commands run off the
+# main thread, where prompt_toolkit owns stdin and every free-text prompt
+# returns None (#23185). An unanswerable prompt used to read as a cancel, so
+# /sign-in printed a link and gave up -- and the code the user then pasted
+# went to the model as a message. The code has to be acceptable as an argument.
+
+def test_an_unanswered_prompt_leaves_a_resumable_sign_in(hub, marked_home, monkeypatch):
+    """No channel to ask on is not a decision to cancel."""
+    monkeypatch.setattr(da, "_prompt_impl", lambda _text: "")
+    out = []
+    result = da.run_sign_in(print_fn=lambda *a, **k: out.append(" ".join(map(str, a))),
+                            hub_base=hub, open_browser=False)
+    assert result is None
+    screen = "\n".join(out)
+    assert "/sign-in <code>" in screen      # the way back in is on screen
+    assert "cancelled" not in screen.lower()  # and it is not a dead end
+    assert da._load_pending()["request_id"] == "req-1234"
+
+
+def test_the_code_is_accepted_as_an_argument(hub, marked_home, monkeypatch):
+    """`/sign-in <code>` finishes what the bare `/sign-in` started."""
+    monkeypatch.setattr(da, "_prompt_impl", lambda _text: "")
+    da.run_sign_in(print_fn=lambda *a, **k: None, hub_base=hub, open_browser=False)
+
+    # No hub_base second time round: the pending record carries it, because the
+    # user is just typing a code and cannot be asked to restate the address.
+    result = da.run_sign_in(print_fn=lambda *a, **k: None, code="CODE1234")
+    assert result is not None and result["token"] == "tok-abc"
+    assert (marked_home / "agent-token").read_text().strip() == "tok-abc"
+    assert da._load_pending() is None  # spent, so it cannot be replayed
+
+
+def test_a_code_with_nothing_pending_says_so(marked_home):
+    out = []
+    result = da.run_sign_in(print_fn=lambda *a, **k: out.append(" ".join(map(str, a))),
+                            code="CODE1234")
+    assert result is None
+    assert "Run /sign-in to start one." in "\n".join(out)
+
+
+def test_an_expired_pending_request_is_not_resumed(hub, marked_home, monkeypatch):
+    """Codes die with their request; resuming a dead one would fail obscurely."""
+    monkeypatch.setattr(da, "_prompt_impl", lambda _text: "")
+    da.run_sign_in(print_fn=lambda *a, **k: None, hub_base=hub, open_browser=False)
+    stale = json.loads((marked_home / da.PENDING_NAME).read_text())
+    stale["expires_at"] = 0
+    (marked_home / da.PENDING_NAME).write_text(json.dumps(stale))
+
+    assert da._load_pending() is None
+    out = []
+    assert da.run_sign_in(print_fn=lambda *a, **k: out.append(" ".join(map(str, a))),
+                          code="CODE1234") is None
+    assert "expired" in "\n".join(out)
+
+
+def test_a_corrupt_pending_file_is_not_a_crash(marked_home):
+    (marked_home / da.PENDING_NAME).write_text("{not json")
+    assert da._load_pending() is None
+
+
+def test_logout_forgets_a_pending_sign_in(hub, marked_home, monkeypatch):
+    """Signing out mid-flow must not leave a request the next user can finish."""
+    monkeypatch.setattr(da, "_prompt_impl", lambda _text: "")
+    da.run_sign_in(print_fn=lambda *a, **k: None, hub_base=hub, open_browser=False)
+    (marked_home / "agent-token").write_text("tok-abc")
+
+    da.run_logout(print_fn=lambda *a, **k: None, hub_base=hub, revoke=False)
+    assert da._load_pending() is None
+
+
 def test_sign_in_refuses_unmarked_home(hub, tmp_path, monkeypatch):
     monkeypatch.setenv("NUMBERS_HOME", str(tmp_path))  # no marker
     monkeypatch.setattr(da, "_prompt_impl", lambda _text: "CODE1234")

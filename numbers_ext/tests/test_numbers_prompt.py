@@ -395,3 +395,50 @@ def test_reset_explains_the_level_it_is_about_to_run(monkeypatch):
     assert "Full factory reset" in full_screen
     assert "choose a provider again" in full_screen
     assert "your providers and API keys" in screen
+
+
+# --- /sign-in carries its code as an argument ------------------------------
+# The classic CLI cannot ask for it: free-text prompts return None off the
+# main thread (#23185) and the modal is choice-only, so the empty answer read
+# as a cancel and /sign-in abandoned itself after printing the link. The code
+# a user then pasted went to the model as an ordinary message.
+
+def _run_sign_in_handler(cli, command, monkeypatch):
+    """Drive /sign-in with a fake TUI. Returns the kwargs run_sign_in saw."""
+    import numbers_ext.device_auth as da
+
+    seen = {}
+
+    def _fake_run_sign_in(print_fn=print, prompt_fn=None, hub_base=None,
+                          open_browser=True, code=""):
+        seen.update(code=code, prompt_fn=prompt_fn)
+        return None
+
+    monkeypatch.setattr(da, "run_sign_in", _fake_run_sign_in)
+    monkeypatch.setitem(__import__("sys").modules, "cli",
+                        type("m", (), {"_cprint": cli.printed.append}))
+    cli._handle_sign_in_command(command)
+    return seen
+
+
+def test_a_bare_sign_in_starts_the_flow_with_no_code(monkeypatch):
+    seen = _run_sign_in_handler(_FakeTUI(None), "/sign-in", monkeypatch)
+    assert seen["code"] == ""
+
+
+def test_the_code_reaches_run_sign_in(monkeypatch):
+    seen = _run_sign_in_handler(_FakeTUI(None), "/sign-in PDZ9RTGK", monkeypatch)
+    assert seen["code"] == "PDZ9RTGK"
+
+
+def test_surrounding_whitespace_is_not_part_of_the_code(monkeypatch):
+    """Pasting from a browser brings spaces with it more often than not."""
+    seen = _run_sign_in_handler(_FakeTUI(None), "/sign-in   PDZ9RTGK  ", monkeypatch)
+    assert seen["code"] == "PDZ9RTGK"
+
+
+def test_the_prompt_channel_is_still_offered(monkeypatch):
+    """The TUI can ask inline; the argument form must not take that away."""
+    cli = _FakeTUI(None)
+    seen = _run_sign_in_handler(cli, "/sign-in", monkeypatch)
+    assert seen["prompt_fn"] == cli._numbers_prompt

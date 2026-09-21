@@ -21,6 +21,7 @@ import socket
 import ssl
 import sys
 import tempfile
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -32,6 +33,12 @@ from numbers_ext import home
 from numbers_ext.ansi import BOLD, BOLD_GREEN, DIM, RED, RST, YELLOW
 
 API_CLIENT_ID = "numbers-cli"
+
+# The name of the file that remembers an in-flight sign-in, and how long it is
+# worth resuming. 10 minutes mirrors deviceTTL in the hub's device.go -- there
+# is nothing to gain by holding a request_id past the code it pairs with.
+PENDING_NAME = ".device-auth-pending.json"
+PENDING_TTL_S = 600
 
 
 def _hub_base() -> str:
@@ -333,6 +340,69 @@ def _clear() -> None:
     if tok.exists():
         tok.unlink()
     _env_remove(home_dir / ".env", "NUMBERS_AGENT_TOKEN")
+    _clear_pending()
+
+
+def _pending_path() -> Path:
+    return home.require_numbers_home() / PENDING_NAME
+
+
+def _save_pending(request_id: str, hub_base: str) -> None:
+    """Remember the in-flight request so a later command can finish the flow.
+
+    The CLI often cannot ask for the code inline. Slash commands are dispatched
+    from the process_loop daemon thread, where prompt_toolkit owns stdin and
+    every free-text prompt returns None by design (cli.py::_prompt_text_input,
+    #23185) -- and the choice modal that /reset falls back to cannot carry an
+    8-character code. So the user has to be able to come back with
+    ``/sign-in <code>``, and that needs the request_id to outlive the command
+    that created it.
+
+    Not a secret: a request_id is worthless without the one-time code, which
+    only the user's signed-in browser is ever shown. Written owner-only anyway,
+    through the same temp-then-replace path as the token itself.
+    """
+    payload = {"request_id": request_id, "hub_base": hub_base,
+               "expires_at": time.time() + PENDING_TTL_S}
+    path = _pending_path()
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=".device-auth-",
+                               suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
+            json.dump(payload, fh)
+        _lock_down(Path(tmp))
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def _load_pending() -> Optional[dict]:
+    """The in-flight request, or None when there is nothing worth resuming.
+
+    Absent, unreadable, malformed and expired all collapse to None: every one
+    of them means the same thing to the user ("start again"), and a resume path
+    that guesses at a half-written file would only fail later and less clearly.
+    """
+    try:
+        data = json.loads(_pending_path().read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(data, dict) or not data.get("request_id"):
+        return None
+    try:
+        if float(data.get("expires_at") or 0) <= time.time():
+            return None
+    except (TypeError, ValueError):
+        return None
+    return data
+
+
+def _clear_pending() -> None:
+    try:
+        _pending_path().unlink()
+    except Exception:
+        pass  # never started, already finished, or a home we cannot write
 
 
 def _exchange(hub_base: str, request_id: str, code: str) -> dict:
@@ -340,9 +410,57 @@ def _exchange(hub_base: str, request_id: str, code: str) -> dict:
                  {"code": code.strip().upper()})
 
 
+def _finish(base: str, request_id: str, code: str,
+            print_fn: Callable) -> Optional[dict]:
+    """Trade a one-time code for the agent token and store it. None on failure."""
+    try:
+        payload = _exchange(base, request_id, code)
+    except HubUnreachable as e:  # the app went away mid-flow
+        for line in e.lines():
+            print_fn(line)
+        return None
+    except AuthError as e:
+        print_fn(f"{RED}Sign-in failed: {e}{RST}")
+        print_fn(f"{DIM}Codes are single-use and expire after 10 minutes. "
+                 f"Run /sign-in for a fresh one.{RST}")
+        return None
+    token = payload.get("token")
+    if not token:
+        print_fn(f"{RED}Sign-in failed: unexpected response from Intersession.{RST}")
+        return None
+    _persist(token)
+    _clear_pending()
+    print_fn(f"{BOLD_GREEN}Signed in{RST} as {payload.get('label', 'your account')}. "
+             f"Restart NUMBERS to pick up the angel tools.")
+    return payload
+
+
+def resume_sign_in(code: str, print_fn: Callable = print,
+                   hub_base: Optional[str] = None) -> Optional[dict]:
+    """Finish the sign-in the bare ``/sign-in`` started, with the browser's code."""
+    home.require_numbers_home()
+    pending = _load_pending()
+    if pending is None:
+        print_fn(f"{YELLOW}Nothing is waiting for a code.{RST} No sign-in was "
+                 f"started here, or it expired -- codes last 10 minutes.")
+        print_fn("  Run /sign-in to start one.")
+        return None
+    base = (hub_base or pending.get("hub_base") or _hub_base()).rstrip("/")
+    return _finish(base, str(pending["request_id"]), code, print_fn)
+
+
 def run_sign_in(print_fn: Callable = print, prompt_fn: Optional[Callable] = None,
-                hub_base: Optional[str] = None, open_browser: bool = True) -> Optional[dict]:
-    """Drive the device flow. Returns the token payload, or None if aborted."""
+                hub_base: Optional[str] = None, open_browser: bool = True,
+                code: str = "") -> Optional[dict]:
+    """Drive the device flow. Returns the token payload, or None if unfinished.
+
+    Given a ``code``, this is the second half of a two-step sign-in: the user
+    has read the code off the authorize page and is handing it over as
+    ``/sign-in <code>``. See _save_pending for why that second step has to
+    exist rather than being a convenience.
+    """
+    if (code or "").strip():
+        return resume_sign_in(code.strip(), print_fn=print_fn, hub_base=hub_base)
     prompt_fn = prompt_fn or _prompt_impl
     home.require_numbers_home()  # fail fast: never exchange into a non-Numbers home
     base = (hub_base or _hub_base()).rstrip("/")
@@ -367,6 +485,10 @@ def run_sign_in(print_fn: Callable = print, prompt_fn: Optional[Callable] = None
     if not rid or not login_url:
         print_fn(f"{RED}Sign-in failed: unexpected response from Intersession.{RST}")
         return None
+    # Saved BEFORE the link is printed: from here on the user may well finish
+    # in the browser and come back with `/sign-in <code>`, and a request_id we
+    # forgot is a code that can never be spent.
+    _save_pending(rid, base)
     print_fn(f"{BOLD}1) Open this link in your browser:{RST}\n   {login_url}\n")
     if open_browser and not _is_headless():
         try:
@@ -376,27 +498,27 @@ def run_sign_in(print_fn: Callable = print, prompt_fn: Optional[Callable] = None
     elif open_browser:
         print_fn(f"{DIM}(No local display detected -- open the link above on a "
                  f"machine with a browser.){RST}")
-    code = (prompt_fn("\n2) Sign in on the page, then paste the code shown here: ") or "").strip()
-    if not code:
-        print_fn(f"{YELLOW}Sign-in cancelled.{RST}")
-        return None
+    # Ask inline where a channel to the user exists (a plain terminal, or the
+    # TUI's remote prompt). Where one does not -- the classic CLI, whose slash
+    # commands run off the main thread -- this returns empty immediately and
+    # the printed instructions below are the whole answer. An empty result is
+    # never treated as a cancel: "nobody could ask" and "the user declined"
+    # look identical here, and only one of them deserves a dead end.
     try:
-        payload = _exchange(base, rid, code)
-    except HubUnreachable as e:  # the app went away mid-flow
-        for line in e.lines():
-            print_fn(line)
-        return None
-    except AuthError as e:
-        print_fn(f"{RED}Sign-in failed: {e}{RST}  (codes expire after 10 minutes — try /sign-in again)")
-        return None
-    token = payload.get("token")
-    if not token:
-        print_fn(f"{RED}Sign-in failed: unexpected response from Intersession.{RST}")
-        return None
-    _persist(token)
-    print_fn(f"{BOLD_GREEN}Signed in{RST} as {payload.get('label', 'your account')}. "
-             f"Restart NUMBERS to pick up the angel tools.")
-    return payload
+        typed = (prompt_fn("\n2) Sign in on the page, then paste the code here: ")
+                 or "").strip()
+    except (EOFError, KeyboardInterrupt):
+        typed = ""
+    if typed:
+        return _finish(base, rid, typed, print_fn)
+    print_fn("")
+    print_fn(f"{BOLD}2) Sign in on that page and copy the code it shows.{RST}")
+    print_fn(f"{BOLD}3) Come back here and run:{RST}  /sign-in <code>")
+    print_fn("")
+    print_fn(f"{DIM}Run the command -- a bare code typed on its own is a message "
+             f"to the agent, not an answer to this. The code is good for 10 "
+             f"minutes.{RST}")
+    return None
 
 
 def run_logout(print_fn: Callable = print, hub_base: Optional[str] = None,
@@ -451,7 +573,9 @@ def main(argv: Optional[list] = None) -> int:
                                  description="Sign in to enable the Angel MCP tools")
     ap.add_argument("action", choices=["signin", "sign-in", "login", "logout", "connect"])
     ap.add_argument("token", nargs="?", default="",
-                    help="agent token (connect only: numbers connect <TOKEN>)")
+                    help="agent token for connect (numbers connect <TOKEN>), or "
+                         "the code from the authorize page for signin "
+                         "(numbers signin <CODE>)")
     args = ap.parse_args(argv)
     try:
         home.require_numbers_home()
@@ -460,7 +584,7 @@ def main(argv: Optional[list] = None) -> int:
             return 0
         if args.action == "connect":
             return persist_agent_token(args.token)
-        return 0 if run_sign_in() else 1
+        return 0 if run_sign_in(code=args.token) else 1
     except home.NotANumbersHome as e:
         print(f"[numbers] {e}", file=__import__("sys").stderr)
         return 3

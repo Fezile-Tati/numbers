@@ -4163,12 +4163,29 @@ class CLICommandsMixin:
     # --- NUMBERS 21:4-9 fork handlers (numbers_ext; see hermes-patches.md P3)
 
     def _handle_sign_in_command(self, command: str) -> None:
-        """Handle /sign-in -- Cloud-HUB device-code sign-in for the Angel MCP."""
+        """Handle /sign-in -- Cloud-HUB device-code sign-in for the Angel MCP.
+
+        ``/sign-in <code>`` finishes what the bare command starts. That second
+        step is not a shortcut, it is the only path that works here: slash
+        commands are dispatched from the process_loop daemon thread, where
+        prompt_toolkit owns stdin and ``_prompt_text_input`` returns None by
+        design (#23185), and the modal it would otherwise fall back to is
+        choice-only -- it cannot carry an 8-character code. So the code was
+        unaskable, the empty answer read as a cancel, and the user watched
+        /sign-in print a link and abandon itself. Pasting the code afterwards
+        then went to the model as an ordinary message, which is why the agent
+        replied to it without knowing what it was.
+
+        The TUI still asks inline (its remote prompt does reach the user); the
+        argument form works in every front-end, including that one.
+        """
         from cli import _cprint
         from numbers_ext.device_auth import run_sign_in
 
+        parts = (command or "").strip().split(maxsplit=1)
+        code = parts[1].strip() if len(parts) > 1 else ""
         try:
-            run_sign_in(print_fn=_cprint, prompt_fn=self._numbers_prompt)
+            run_sign_in(print_fn=_cprint, prompt_fn=self._numbers_prompt, code=code)
         except (EOFError, KeyboardInterrupt):
             _cprint("Sign-in cancelled.")
 
