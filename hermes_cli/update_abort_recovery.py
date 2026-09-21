@@ -1,6 +1,6 @@
 """Fresh-process recovery after the update's in-process restart phase aborts.
 
-``hermes update`` performs its fleet restart in the interpreter that started
+``numbers update`` performs its fleet restart in the interpreter that started
 before ``git pull``.  When that phase raises — the module graph it is running
 no longer matches the checkout on disk — this module owns everything that
 happens next: which runtimes a clean child may relaunch, what counts as proof
@@ -141,7 +141,7 @@ def _recover_gateway_restart_after_abort(
 ) -> dict[str, list]:
     """Retry supervised gateway restarts from a clean Python process.
 
-    ``hermes update`` normally performs the fleet restart in the interpreter
+    ``numbers update`` normally performs the fleet restart in the interpreter
     that started before ``git pull``.  If that phase raises while importing the
     new tree, a warning alone leaves the old gateway alive against new files on
     disk.  The recovery boundary launches the existing per-profile
@@ -158,7 +158,7 @@ def _recover_gateway_restart_after_abort(
     distinguish a spawn failure from a per-profile failure.
 
     The same child additionally restarts active ``hermes-serve*`` systemd
-    units (#92145).  ``hermes serve`` hosts ``tui_gateway.server`` and is
+    units (#92145).  ``numbers serve`` hosts ``tui_gateway.server`` and is
     restarted by the in-process phase alongside the gateway units, but no
     per-profile ``gateway restart`` command reaches it — so an abort used to
     leave it holding the pre-pull module graph with nothing left to notice.
@@ -355,7 +355,7 @@ def _warn_stale_serve_runtimes(rows) -> None:
 
     The original #92145 report is a user watching every chat turn fail with an
     ``ImportError`` for a symbol that imports fine on disk, with nothing in the
-    terminal naming the responsible process. ``hermes serve`` hosts
+    terminal naming the responsible process. ``numbers serve`` hosts
     ``tui_gateway.server``; when its unit was never restarted it keeps the
     pre-pull ``sys.modules`` graph and there is no gateway row anywhere that
     reveals it. Print the PIDs and the exact command that fixes it.
@@ -375,7 +375,7 @@ def _warn_stale_serve_runtimes(rows) -> None:
     print(
         "    Restart them before using Hermes again, e.g."
         " `systemctl --user restart hermes-serve.service`"
-        " or by relaunching `hermes serve` / the Desktop app."
+        " or by relaunching `numbers serve` / the Desktop app."
     )
 
 
@@ -391,7 +391,7 @@ def _abort_recovery_is_complete(
     Only when EVERY inventoried runtime family is accounted for. The gateway
     leg alone is not enough (#92145): the post-update read-back
     (``collect_fleet_versions``) is gateway-only — it reads each profile's
-    ``gateway_state.json`` / control socket — so a ``hermes serve`` still
+    ``gateway_state.json`` / control socket — so a ``numbers serve`` still
     holding the pre-update ``sys.modules`` graph is invisible to both the
     recovery pass and the verification that follows it. Clearing the flag on
     gateway coverage alone is exactly how an update reported success while

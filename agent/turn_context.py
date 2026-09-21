@@ -615,7 +615,7 @@ def build_turn_context(
     # null; rebuilding from scratch" warning and a needless first-turn prefix
     # cache miss. (Issue #45499.)
 
-    # Tag log records on this thread with the session ID for ``hermes logs``.
+    # Tag log records on this thread with the session ID for ``numbers logs``.
     set_session_context(agent.session_id)
 
     # Bind the skill write-origin ContextVar for this thread.

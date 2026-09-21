@@ -211,7 +211,7 @@ def _is_pausable_gateway(cmdline: str) -> bool:
     ``hermes-setup``, so the CLI updater's own
     ``_pause_windows_gateways_for_update()`` — which exists precisely to
     stop these processes (and is always active: ``hermes-setup`` invokes
-    ``hermes update --yes --gateway``) — never gets the chance to run.
+    ``numbers update --yes --gateway``) — never gets the chance to run.
 
     Only gateway invocations are exempted. Anything else running from the
     venv (an operator's REPL, a stray script, a ``serve`` backend that
@@ -239,7 +239,7 @@ def _is_updater_owned_backend(pid: int, cmdline: str) -> bool:
 
     The gateway exemption above keeps ``gateway run`` holders out of the
     blocker list because the updater's own pause machinery stops and resumes
-    them. ``hermes serve`` / ``hermes dashboard`` backends had no such
+    them. ``numbers serve`` / ``numbers dashboard`` backends had no such
     deferral, so a leaked serve child (or a Desktop-owned backend the
     teardown lost track of) dead-ended the hand-off with ``venv-blocked`` —
     or, worse, survived the hand-off and made the shim quarantine fail with

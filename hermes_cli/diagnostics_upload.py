@@ -1,6 +1,6 @@
-"""Client for uploading ``hermes debug share`` bundles to Nous-internal S3.
+"""Client for uploading ``numbers debug share`` bundles to Nous-internal S3.
 
-This is the opt-in (``--nous``) destination for ``hermes debug share``.
+This is the opt-in (``--nous``) destination for ``numbers debug share``.
 Unlike the public paste.rs path, bundles uploaded here go to a Nous-owned
 S3 bucket via a short-lived signed URL minted by the Nous account service
 (NAS).  The bucket auto-expires objects after 14 days, and the contents are

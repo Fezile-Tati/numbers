@@ -142,7 +142,7 @@ class ModelAssignment(BaseModel):
     # ``model.api_key`` (main slot) or ``auxiliary.<task>.api_key`` (aux
     # slots) — where the runtime resolvers read it — so a self-hosted
     # endpoint that requires auth works from the GUI. Mirrors the key the
-    # ``hermes model`` custom flow collects.
+    # ``numbers model`` custom flow collects.
     api_key: str = ""
     confirm_expensive_model: bool = False
     profile: Optional[str] = None
@@ -535,7 +535,7 @@ class BackupRequest(BaseModel):
 
 class ImportRequest(BaseModel):
     archive: str
-    # Pass --force to `hermes import`. The spawned action runs with
+    # Pass --force to `numbers import`. The spawned action runs with
     # stdin=DEVNULL, so the CLI's interactive "Continue? [y/N]" overwrite
     # prompt hits EOF and auto-aborts ("Aborted.", exit 1) whenever the
     # target already has a config — which it always does when the dashboard

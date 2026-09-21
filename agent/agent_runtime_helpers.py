@@ -4083,7 +4083,7 @@ def consume_pending_sanitizer_heal_notice() -> Optional[str]:
 def get_sanitizer_heal_stats() -> Dict[str, Dict[str, Any]]:
     """Read-only snapshot of per-session sanitiser heal counters.
 
-    Surfaced by diagnostics (``hermes doctor`` / debug share callers) so
+    Surfaced by diagnostics (``numbers doctor`` / debug share callers) so
     repeated silent repairs are visible outside errors.log. Keys are session
     ids; values carry ``heal_events`` (sanitizer invocations that healed at
     least one message), ``messages_healed`` (total substituted turns) and
@@ -4108,7 +4108,7 @@ def _log_empty_non_final_heal(healed: int) -> None:
     per hour with no user-visible signal — #96870). At the threshold the
     escalation also queues a ONE-TIME out-of-band user notice (drained by
     ``consume_pending_sanitizer_heal_notice``) pointing at ``/debug share``
-    / ``hermes doctor`` — once per session, never re-armed by a new window.
+    / ``numbers doctor`` — once per session, never re-armed by a new window.
     """
     key = _session_id_for_heal_log() or "-"
     threshold = _heal_escalation_threshold()

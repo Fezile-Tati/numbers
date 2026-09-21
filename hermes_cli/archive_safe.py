@@ -1,6 +1,6 @@
 """Safe ``tar.gz`` primitives shared by the profile and kanban transfer paths.
 
-Both ``hermes profile export|import`` and ``hermes kanban export|import``
+Both ``numbers profile export|import`` and ``numbers kanban export|import``
 ship a directory to another machine and unpack whatever comes back. The
 unpack side is the dangerous half: a hand-crafted archive can carry
 ``../`` members, absolute paths, symlinks, or device nodes, any of which

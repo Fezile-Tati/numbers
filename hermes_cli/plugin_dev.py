@@ -1,4 +1,4 @@
-"""Runtime-backed validation behind ``hermes plugins doctor``.
+"""Runtime-backed validation behind ``numbers plugins doctor``.
 
 The Doctor originated in #46456 / contributor PR #46457 by 峯岸 亮
 (@zapabob).  This core command keeps that contribution's manifest/import/
@@ -206,7 +206,7 @@ def _holds_plugin(path: Path) -> bool:
 
     Doctor copies the resolved directory wholesale before the runtime gets
     to reject it, so an unvalidated resolve is a disk-usage bug, not just a
-    confusing error: ``hermes plugins doctor`` with no argument defaults to
+    confusing error: ``numbers plugins doctor`` with no argument defaults to
     ``.``, and any directory used to satisfy that.
     """
     if not path.is_dir():

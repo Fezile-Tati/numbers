@@ -55,7 +55,7 @@ def _is_termux_env(env: dict | None = None) -> bool:
 def _stdout_to_stderr():
     """Route fd 1 (and sys.stdout) to stderr for the duration of an install.
 
-    ``hermes acp`` speaks JSON-RPC on stdout; an inherited-fd install child
+    ``numbers acp`` speaks JSON-RPC on stdout; an inherited-fd install child
     writing there would corrupt the protocol. Mirrors
     ``main.py::_recover_from_interrupted_install``.
     """
@@ -198,7 +198,7 @@ def ensure_windows_bin_launchers(
     here is :func:`hermes_constants.get_default_hermes_root`.
 
     Earlier installer versions staged them at ``<checkout>\\bin`` instead —
-    inside the git working tree — where ``hermes update``'s pre-update
+    inside the git working tree — where ``numbers update``'s pre-update
     autostash (``git stash push --include-untracked``) swept them off disk;
     once the desktop updater stopped re-applying stashes (``--keep-stash``)
     nothing restored them and ``hermes`` stopped resolving in every new
@@ -362,7 +362,7 @@ def migrate_windows_bin_path(
 ) -> bool:
     """One-time PATH migration to the ``HERMES_HOME\\bin`` launcher layout.
 
-    Runs from the ``hermes update`` tail (and mirrors what install.ps1's
+    Runs from the ``numbers update`` tail (and mirrors what install.ps1's
     Set-PathVariable does on fresh installs/repairs, which never reach
     existing installs — updates don't run install.ps1):
 
@@ -533,7 +533,7 @@ def _restore_quarantined_exes(moved: list[tuple[Path, Path]]) -> None:
     module: one retry ladder and one recovery message for every restore site,
     instead of the near-identical copies that had already drifted (#75584).
     Warnings land on stderr — this module runs in the early-recovery path and
-    ``hermes acp`` speaks JSON-RPC on stdout.
+    ``numbers acp`` speaks JSON-RPC on stdout.
     """
     _er.restore_quarantined_shims(moved)
 

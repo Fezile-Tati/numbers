@@ -106,7 +106,7 @@ _STALE_PURGE_PROTECTED = frozenset(
 def _purge_stale_hermes_modules() -> None:
     """Evict every cached Hermes module after the checkout changed in-place.
 
-    ``hermes update`` keeps running in the pre-pull Python process. The
+    ``numbers update`` keeps running in the pre-pull Python process. The
     gateway auto-restart phase that follows does function-level
     ``from hermes_cli.gateway import ...`` — executing NEW source inside an
     OLD ``sys.modules`` world. The moment new source references a symbol
@@ -156,7 +156,7 @@ def _purge_stale_hermes_modules() -> None:
 def _reload_updated_runtime_modules() -> None:
     """Reload update-sensitive modules after the checkout changes in-place.
 
-    ``hermes update`` keeps running in the pre-pull Python process. After a
+    ``numbers update`` keeps running in the pre-pull Python process. After a
     large update, modules already present in ``sys.modules`` can still expose
     old symbols even though their source files on disk are new. Refresh the
     small module set used by lazy-backend refresh before that step imports
@@ -181,7 +181,7 @@ def _reload_updated_runtime_modules() -> None:
 def _reload_config_modules() -> None:
     """Force-reload modules from disk after git pull.
 
-    ``hermes update`` runs in the PRE-pull Python process. After ``git pull``
+    ``numbers update`` runs in the PRE-pull Python process. After ``git pull``
     updates the source files on disk, modules already in ``sys.modules``
     still hold the OLD code. Function-level imports return the cached module,
     so ``DEFAULT_CONFIG["_config_version"]`` is the OLD value and
@@ -246,7 +246,7 @@ def _migrate_sibling_profile_configs() -> list[tuple[str, int, int]]:
     """Migrate every SIBLING profile's config.yaml to the current version.
 
     #91277 Phase 2 (fleet-wide config migration; #20438/#54926/#79048): the
-    shared checkout serves every profile, but ``hermes update`` historically
+    shared checkout serves every profile, but ``numbers update`` historically
     migrated only the active profile's config — siblings drifted versions
     until their gateway hit a config the new code couldn't read.
 
@@ -341,7 +341,7 @@ def _check_and_apply_config_migration(
     except Exception as exc:
         logger.debug("Config check during update failed: %s", exc)
         print("  ⚠️  Could not check config version.")
-        print("     Run 'hermes config migrate' to check manually.")
+        print("     Run 'numbers config migrate' to check manually.")
         return
 
     has_new_options = bool(missing_env or missing_config)
@@ -378,7 +378,7 @@ def _check_and_apply_config_migration(
                 print(f"  ⚠️  {_warn}")
         except Exception as _mig_err:
             print(f"  ⚠️  Config format update failed: {_mig_err}")
-            print("     Run 'hermes config migrate' to retry.")
+            print("     Run 'numbers config migrate' to retry.")
     elif needs_migration:
         print()
         # Show WHAT changed, not just a count, so the user can make an
@@ -446,7 +446,7 @@ def _check_and_apply_config_migration(
                 # here and crashes the update at this prompt.
                 print(
                     "  ⚠ Could not read input (encoding issue). Skipping. "
-                    "Run 'hermes config migrate' manually to configure."
+                    "Run 'numbers config migrate' manually to configure."
                 )
                 response = "n"
 
@@ -466,10 +466,10 @@ def _check_and_apply_config_migration(
                 print()
                 print("✓ Configuration updated!")
             if (gateway_mode or assume_yes or response == "auto") and missing_env:
-                print("  ℹ API keys require manual entry: hermes config migrate")
+                print("  ℹ API keys require manual entry: numbers config migrate")
         else:
             print()
-            print("Skipped. Run 'hermes config migrate' later to configure.")
+            print("Skipped. Run 'numbers config migrate' later to configure.")
     else:
         print("  ✓ Configuration is up to date")
 
@@ -807,7 +807,7 @@ def _critical_module_import_failures(
     against the half-updated tree. Costs ~0.4s.
 
     Uses the project venv's interpreter when there is one (matching
-    ``_venv_core_imports_healthy``): ``hermes update`` can be driven by a
+    ``_venv_core_imports_healthy``): ``numbers update`` can be driven by a
     different Python than the install's own, and probing the wrong
     interpreter would test a tree the user never runs.
 
@@ -932,7 +932,7 @@ def _gateway_prompt(prompt_text: str, default: str = "", timeout: float = 300.0)
     Writes a prompt marker file so the gateway can forward the question to the
     user, then polls for a response file.  Falls back to *default* on timeout.
 
-    Used by ``hermes update --gateway`` so interactive prompts (stash restore,
+    Used by ``numbers update --gateway`` so interactive prompts (stash restore,
     config migration) are forwarded to the messenger instead of being silently
     skipped.
     """
@@ -1008,7 +1008,7 @@ def _web_toolchain_roots(web_dir: Path) -> tuple[Path, ...]:
     return (web_dir, web_dir.parent)
 
 def _print_curator_first_run_notice() -> None:
-    """Print a short heads-up about the skill curator after `hermes update`.
+    """Print a short heads-up about the skill curator after `numbers update`.
 
     Only fires when the curator is enabled AND has no recorded run yet, which
     is exactly the window where the gateway ticker used to fire Curator
@@ -1041,14 +1041,14 @@ def _print_curator_first_run_notice() -> None:
         f"~{days}d after installation; only agent-created skills are in "
         f"scope and nothing is ever auto-deleted (archive is recoverable)."
     )
-    print("  Preview now:  hermes curator run --dry-run")
-    print("  Pause it:     hermes curator pause")
+    print("  Preview now:  numbers curator run --dry-run")
+    print("  Pause it:     numbers curator pause")
     print(
         "  Docs:         https://hermes-agent.nousresearch.com/docs/user-guide/features/curator"
     )
 
 def _print_fts_optimize_available_notice() -> None:
-    """Advertise the opt-in v23 search-index optimization after `hermes update`.
+    """Advertise the opt-in v23 search-index optimization after `numbers update`.
 
     Only fires when the current profile's state.db still needs an FTS storage
     rebuild. Leads with the reclaimable-space figure and points at the exact
@@ -1132,11 +1132,11 @@ def _print_fts_optimize_available_notice() -> None:
         print()
         print("◆ Session database optimization incomplete")
         print(
-            "  A previous `hermes sessions optimize-storage` run was "
+            "  A previous `numbers sessions optimize-storage` run was "
             "interrupted. Search still works; re-run the command to resume "
             "and finish reclaiming disk:"
         )
-        print("    hermes sessions optimize-storage")
+        print("    numbers sessions optimize-storage")
         return
 
     # Concrete size framing — lead with the savings the user cares about.
@@ -1157,7 +1157,7 @@ def _print_fts_optimize_available_notice() -> None:
             f"typically frees ~60% of state.db — about {est_reclaim:.1f} GB "
             f"of your current {size_gb:.1f} GB."
         )
-    print("  Run when convenient:  hermes sessions optimize-storage")
+    print("  Run when convenient:  numbers sessions optimize-storage")
     print(
         "  It runs in the foreground with a progress bar, is safe to "
         "interrupt/re-run, and never changes your conversations."
@@ -1168,11 +1168,11 @@ def _print_curator_recent_run_notice() -> None:
 
     The curator runs in the background (gateway tick + CLI session start),
     so users learn about skill consolidations only by stumbling into a
-    rename. ``hermes update`` is a high-attention surface — surface the
+    rename. ``numbers update`` is a high-attention surface — surface the
     most recent run's rename map here, once.
 
     Show-once: state stamps ``last_run_summary_shown_at`` after printing.
-    Subsequent ``hermes update`` invocations skip the block until a newer
+    Subsequent ``numbers update`` invocations skip the block until a newer
     curator run lands. Silent when the curator has never run, when the
     most recent summary has already been shown, or when the summary has
     no rename information to display (no archives).
@@ -1218,7 +1218,7 @@ def _print_curator_recent_run_notice() -> None:
         print(f"  {line}")
     print(
         "  (This message shows once per curator run. "
-        "View anytime: hermes curator status)"
+        "View anytime: numbers curator status)"
     )
 
     # Stamp shown so we don't repeat on the next update.
@@ -1316,7 +1316,7 @@ def _finish_dashboard_update_cleanup(
         "not be auto-restarted."
     )
     print("  Re-launch it when you want the web UI back:")
-    print("    hermes dashboard --port <port>")
+    print("    numbers dashboard --port <port>")
 
 def _atomic_replace_dir(src: str, dst: str) -> None:
     """Replace directory *dst* with *src* without leaving *dst* half-deleted.
@@ -1369,7 +1369,7 @@ def _discard_staged(staged) -> None:
 
     Without this a phase-1 failure (typically disk exhaustion) orphans one
     staging copy per entry already processed — up to a full second copy of
-    the tree. The user then follows the "re-run `hermes update`" advice with
+    the tree. The user then follows the "re-run `numbers update`" advice with
     *less* free space than before and the retry fails harder than the
     original attempt.
     """
@@ -1490,7 +1490,7 @@ def _assess_parked_branch_switch(
     to the update target.
 
     Live incident (2026-08-17, Teknium's box): the source checkout sat on a
-    stale feature branch left behind by earlier tooling; ``hermes update``
+    stale feature branch left behind by earlier tooling; ``numbers update``
     autostashed, ran its post-update steps and printed "✓ Code updated!"
     while the running code stayed days behind main. The guard's contract:
 
@@ -1597,7 +1597,7 @@ def _print_parked_branch_skip_warning(
     print()
     print("  To resolve, inspect the branch and switch back yourself:")
     print(f"    git -C {cwd} status")
-    print(f"    git -C {cwd} checkout {target_branch} && hermes update")
+    print(f"    git -C {cwd} checkout {target_branch} && numbers update")
     print(
         "  (commit or stash your work on the branch first if you want to "
         "keep it)"
@@ -1884,7 +1884,7 @@ def _abort_zip_update_if_dirty_tree() -> None:
         "  Overlaying the ZIP would overwrite uncommitted edits and permanently "
         "delete untracked files."
     )
-    print("  Stash or commit your changes, then rerun `hermes update`.")
+    print("  Stash or commit your changes, then rerun `numbers update`.")
     print("  To inspect: git status --porcelain")
     _m().sys.exit(1)
 
@@ -1965,7 +1965,7 @@ def _print_verified_update_completion(message: str) -> bool:
     print(f"⚠ Update partially complete — {detail}.")
     print(
         "  Rebuild the Hermes venv with a uv-managed Python, restart Hermes, "
-        "then verify with `hermes doctor`."
+        "then verify with `numbers doctor`."
     )
     return False
 
@@ -2025,13 +2025,13 @@ def _print_update_summary(
             print("  Code and Python deps are updated, but the dashboard/TUI may")
             print("  be in a mixed state until the Node deps are rebuilt.")
         if not desktop_build_ok:
-            print("  Run `hermes desktop` to retry the desktop rebuild.")
+            print("  Run `numbers desktop` to retry the desktop rebuild.")
         if not sqlite_runtime_ok:
             print(
                 "  The Python runtime remediation did not complete. Run `hermes "
                 "update` again; if SQLite is unchanged, rebuild the Hermes venv "
                 "with a uv-managed Python, restart Hermes, then verify with "
-                "`hermes doctor`."
+                "`numbers doctor`."
             )
     else:
         _print_update_completion(_update_complete_message(pre_update_version))
@@ -2073,7 +2073,7 @@ def _restore_state_db_from_snapshot(state_path: Path, snap_state: Path) -> bool:
     if holders:
         print(
             f"  ✗ Auto-restore refused: process(es) {holders} still hold "
-            "state.db or its WAL open. Stop them (hermes gateway stop), "
+            "state.db or its WAL open. Stop them (numbers gateway stop), "
             "then restore manually with /snapshot restore."
         )
         return False
@@ -2219,8 +2219,8 @@ def _update_via_zip(args, *, had_desktop_app_before_update: bool = False) -> boo
         print(
             "  This path runs when git file I/O is broken on the system. "
             "Either resolve the git-side breakage (typically an antivirus "
-            "or NTFS filter holding files open) and rerun `hermes update "
-            f"--branch {branch}`, or update against main with `hermes update`."
+            "or NTFS filter holding files open) and rerun `numbers update "
+            f"--branch {branch}`, or update against main with `numbers update`."
         )
         _m().sys.exit(1)
     _abort_zip_update_if_dirty_tree()
@@ -2355,7 +2355,7 @@ def _update_via_zip(args, *, had_desktop_app_before_update: bool = False) -> boo
                     "  Files appeared in the checkout while the update was "
                     "downloading; committing the swap would delete them."
                 )
-                print("  Stash or commit your changes, then rerun `hermes update`.")
+                print("  Stash or commit your changes, then rerun `numbers update`.")
                 _m().sys.exit(1)
             _commit_staged_replacements(staged)
         except Exception:
@@ -2381,7 +2381,7 @@ def _update_via_zip(args, *, had_desktop_app_before_update: bool = False) -> boo
         # scare the user toward a reinstall they don't need.
         print("  Your existing install was left in place.")
         print(
-            "  Re-run `hermes update` to retry; if the agent won't start, "
+            "  Re-run `numbers update` to retry; if the agent won't start, "
             "reinstall from https://hermes-agent.nousresearch.com"
         )
         _m().sys.exit(1)
@@ -2486,7 +2486,7 @@ def _update_via_zip(args, *, had_desktop_app_before_update: bool = False) -> boo
         print(f"  {failing_module}: {import_error}")
         print()
         print("  This usually means the copy was interrupted partway through.")
-        print("  Re-run `hermes update` to complete it.")
+        print("  Re-run `numbers update` to complete it.")
         _m().sys.exit(1)
 
     node_failures = _update_node_dependencies()
@@ -2511,7 +2511,7 @@ def _update_via_zip(args, *, had_desktop_app_before_update: bool = False) -> boo
         if result.get("user_modified"):
             print(f"  ~ {len(result['user_modified'])} user-modified (kept)")
             print(
-                "    → see them: hermes skills list-modified  "
+                "    → see them: numbers skills list-modified  "
                 "(diff/reset to resume updates)"
             )
         if result.get("cleaned"):
@@ -2664,7 +2664,7 @@ def _stash_local_changes_if_needed(git_cmd: list[str], cwd: Path) -> Optional[st
                 print(f"  {push.stderr.strip().splitlines()[0]}")
             print(
                 "  Commit, stash, or clean up your local changes manually, "
-                "then re-run `hermes update`."
+                "then re-run `numbers update`."
             )
             raise subprocess.CalledProcessError(
                 push.returncode, push.args, output=push.stdout, stderr=push.stderr
@@ -2811,7 +2811,7 @@ def _stash_apply_failed_only_on_existing_untracked(stderr: str) -> bool:
 def _park_stashed_changes(stash_ref: str) -> None:
     """Leave a pre-update autostash parked instead of re-applying it.
 
-    Used by ``hermes update --keep-stash`` (the desktop updater's mode): the
+    Used by ``numbers update --keep-stash`` (the desktop updater's mode): the
     stash made the update possible on a dirty tree, but local source edits
     must never be silently re-applied onto the updated code. Nothing is
     lost — the entry stays in ``git stash`` with printed recovery guidance.
@@ -3444,7 +3444,7 @@ def _invalidate_update_cache():
     reports a stale "commits behind" count after a successful update.
 
     The git repo is shared across profiles — when one profile runs
-    ``hermes update``, every profile is now current.
+    ``numbers update``, every profile is now current.
     """
     homes = []
     # Default profile home (Docker-aware — uses /opt/data in Docker)
@@ -3611,7 +3611,7 @@ def _warn_pending_fleet_restart(*, startup: bool = False) -> None:
     """Print the specific interrupted-update fleet-restart warning."""
     stream = sys.stderr if startup else sys.stdout
     print(
-        "⚠ A previous `hermes update` pulled new code but did not "
+        "⚠ A previous `numbers update` pulled new code but did not "
         "restart running gateways.",
         file=stream,
     )
@@ -3621,7 +3621,7 @@ def _warn_pending_fleet_restart(*, startup: bool = False) -> None:
     )
     if startup:
         print(
-            "  Run `hermes update` or `hermes gateway restart`.",
+            "  Run `numbers update` or `numbers gateway restart`.",
             file=stream,
         )
 
@@ -3772,7 +3772,7 @@ def _run_pending_fleet_restart() -> bool:
 
 
 def _apply_pending_fleet_restart_catchup() -> None:
-    """On an already-up-to-date ``hermes update``, finish a skipped restart.
+    """On an already-up-to-date ``numbers update``, finish a skipped restart.
 
     No-op when nothing is pending. Exits 1 when the catch-up restart is
     incomplete so automation does not treat the fleet as healthy.
@@ -3785,7 +3785,7 @@ def _apply_pending_fleet_restart_catchup() -> None:
     if _run_pending_fleet_restart():
         _clear_fleet_restart_pending_marker()
         return
-    print("  ⚠ Fleet restart incomplete. Recover with: hermes gateway restart")
+    print("  ⚠ Fleet restart incomplete. Recover with: numbers gateway restart")
     sys.exit(1)
 
 
@@ -3802,7 +3802,7 @@ def _format_concurrent_instances_message(
     lines.append("  Windows blocks REPLACE on a running executable.")
     lines.append("")
     lines.append("  Close Hermes Desktop, exit any open `hermes` REPLs, and")
-    lines.append("  stop the gateway (`hermes gateway stop`) before retrying.")
+    lines.append("  stop the gateway (`numbers gateway stop`) before retrying.")
     lines.append("")
     if matches:
         pid_args = " ".join(f"/PID {pid}" for pid, _ in matches)
@@ -3810,7 +3810,7 @@ def _format_concurrent_instances_message(
         lines.append("  stale, terminate them directly, then retry the update:")
         lines.append(f"      taskkill {pid_args} /F")
         lines.append("")
-    lines.append("  Override with `hermes update --force` if you've already")
+    lines.append("  Override with `numbers update --force` if you've already")
     lines.append("  confirmed those processes will not write to the venv.")
     return "\n".join(lines)
 
@@ -3860,7 +3860,7 @@ def _filter_non_gateway_concurrent_instances(
     """Return only the concurrent-instance matches that are NOT the gateway.
 
     Used by the pre-update concurrent gate to decide whether to abort
-    ``hermes update``. If every concurrent instance is a gateway, the pause
+    ``numbers update``. If every concurrent instance is a gateway, the pause
     machinery (``_pause_windows_gateways_for_update``) and the post-update
     kill+restart block handle it — the update proceeds. If anything else (a
     TUI shell, a Hermes Desktop backend child, an unrelated ``hermes`` REPL)
@@ -3905,7 +3905,7 @@ def _capture_active_lazy_features() -> list[str]:
 
 
 def _capture_active_tool_dependencies() -> list[str]:
-    """Snapshot Python dependencies installed explicitly through ``hermes tools``."""
+    """Snapshot Python dependencies installed explicitly through ``numbers tools``."""
     try:
         from hermes_cli import tools_config
 
@@ -3921,7 +3921,7 @@ def _restore_active_tool_dependencies(
     *,
     env: dict[str, str] | None = None,
 ) -> None:
-    """Restore allowlisted ``hermes tools`` dependencies into a rebuilt venv.
+    """Restore allowlisted ``numbers tools`` dependencies into a rebuilt venv.
 
     The dependency names came from a pre-rebuild import probe and are resolved
     through a static package allowlist. Never raises: a failed optional tool
@@ -4004,7 +4004,7 @@ def _refresh_active_lazy_features(
 
     When pyproject.toml's ``[all]`` extra was slimmed down (May 2026), most
     optional backends moved to ``tools/lazy_deps.py`` and only install on
-    first use. ``hermes update`` runs ``uv pip install -e .[all]`` which
+    first use. ``numbers update`` runs ``uv pip install -e .[all]`` which
     leaves those packages untouched — so if we bump a pin in
     :data:`LAZY_DEPS` (CVE response, transitive bug fix), users who already
     activated the backend keep the stale version forever.
@@ -4081,7 +4081,7 @@ def _refresh_active_lazy_features(
         print(f"  ⚠ {feature} failed to refresh: {reason}")
 
     if install_cmd_prefix is None:
-        print("  ⚠ Lazy refresh failed; rerun `hermes update` once resolved.")
+        print("  ⚠ Lazy refresh failed; rerun `numbers update` once resolved.")
         return False
 
     # Immediate import-based recovery — metadata-only verifiers miss the case
@@ -4097,7 +4097,7 @@ def _refresh_active_lazy_features(
         print(
             "  Lazy backend(s) keep their previous version; probed packages look intact."
         )
-        print("  Rerun `hermes update` once the upstream issue is resolved.")
+        print("  Rerun `numbers update` once the upstream issue is resolved.")
         return True
     if status == "indeterminate":
         print(
@@ -4232,7 +4232,7 @@ def _npm_manifest_paths() -> tuple[Path, ...]:
 
     The lockfile alone is NOT a sufficient key: on a local checkout a dev
     can edit package.json (root or a workspace) without running npm — the
-    lockfile is then unchanged but `hermes update` is exactly the step
+    lockfile is then unchanged but `numbers update` is exactly the step
     expected to sync node_modules (via the `npm install` fallback in
     _run_npm_install_deterministic).
 
@@ -4331,7 +4331,7 @@ def _repair_node_deps_on_current_checkout(
     A current checkout does not imply healthy Node deps: a previous npm
     install may have failed (EBADENGINE from a node/npm mismatch, network
     timeout, interrupted install) and its error message says to "re-run
-    hermes update" — but the early return never reached the Node refresh,
+    numbers update" — but the early return never reached the Node refresh,
     so that repair advice could never work. ``_update_node_dependencies``
     self-gates on the lockfile hash, which is only recorded after a
     SUCCESSFUL npm install (and re-trips when node_modules is missing or
@@ -4341,7 +4341,7 @@ def _repair_node_deps_on_current_checkout(
     node_failures = _update_node_dependencies()
     if node_failures:
         print(f"  ⚠ Node.js refresh failed for: {', '.join(node_failures)}")
-        print("    Fix npm and re-run `hermes update`.")
+        print("    Fix npm and re-run `numbers update`.")
         print_completion(
             "⚠ Checkout is current, but Node.js dependencies could not be repaired."
         )
@@ -4397,7 +4397,7 @@ def _update_node_dependencies() -> list[str]:
             print("→ Updating Node.js dependencies...")
             print("  ⚠ Skipped: only a Windows npm is reachable from this WSL shell.")
             print("    Install Node.js inside the WSL distro (nvm, or your distro's")
-            print("    package manager), then re-run `hermes update`.")
+            print("    package manager), then re-run `numbers update`.")
             failed = []
             if any(
                 (_m().PROJECT_ROOT / workspace / "package.json").exists()
@@ -4416,7 +4416,7 @@ def _update_node_dependencies() -> list[str]:
 
     # Best-effort: warm npx's cache for agent-browser (#43564). Runs before
     # the lockfile-unchanged early return below since that's the common
-    # `hermes update` case. Synchronous and can block ~11s on a true cold
+    # `numbers update` case. Synchronous and can block ~11s on a true cold
     # cache (~0.4s once warm) — print first so that doesn't look like a hang.
     print("→ Warming npx cache for agent-browser...")
     try:
@@ -4445,7 +4445,7 @@ def _update_node_dependencies() -> list[str]:
         print()
         print("  ⚠ Node.js dependency refresh did not complete cleanly; the")
         print("    installation may be in a mixed state (updated code, stale Node")
-        print("    deps). Fix npm and re-run `hermes update`.")
+        print("    deps). Fix npm and re-run `numbers update`.")
         return list(labels)
 
     install_args = [
@@ -4467,7 +4467,7 @@ def _update_node_dependencies() -> list[str]:
     # NOTE: capture_output=False here is deliberate (#18840) — optional
     # postinstall scripts print download progress, and capturing it makes a
     # long download look hung. The chatty npm-deprecation noise during
-    # `hermes update` comes from the *desktop* build, not this step; that
+    # `numbers update` comes from the *desktop* build, not this step; that
     # one is captured to update.log.
     result = _m()._run_npm_install_deterministic(
         npm,
@@ -4492,7 +4492,7 @@ def _update_node_dependencies() -> list[str]:
 def _log_only_write(text: str) -> None:
     """Write ``text`` to ``~/.hermes/logs/update.log`` only, never the terminal.
 
-    During ``hermes update`` ``sys.stdout`` is an ``_UpdateOutputStream`` that
+    During ``numbers update`` ``sys.stdout`` is an ``_UpdateOutputStream`` that
     mirrors to both the terminal and ``update.log``. Loud, low-signal
     subprocess output (npm installs, the Electron/vite build, the cua-driver
     installer's "Next steps" wall) should be captured and tucked into the log
@@ -4585,7 +4585,7 @@ def _print_fetch_failure(stderr: str) -> None:
 
 
 def _cmd_update_check(branch: str = "main", *, branch_explicit: bool = False):
-    """Implement ``hermes update --check``: fetch and report without installing.
+    """Implement ``numbers update --check``: fetch and report without installing.
 
     ``branch`` selects which branch the check compares against. Default is
     "main"; callers can pass another branch to ask "are there new commits
@@ -4781,7 +4781,7 @@ def _ensure_fhs_path_guard() -> None:
 
     Mirrors the post-symlink probe added to ``scripts/install.sh`` so that
     existing FHS-layout root installs on RHEL/CentOS/Rocky/Alma 8+ get
-    repaired on ``hermes update`` without requiring a reinstall.  The
+    repaired on ``numbers update`` without requiring a reinstall.  The
     installer's assumption that ``/usr/local/bin`` is on PATH for every
     standard shell breaks on those distros in non-login interactive shells
     (su, sudo -s, tmux panes, some web terminals): /etc/bashrc doesn't
@@ -4868,7 +4868,7 @@ def _ensure_acp_launcher() -> None:
     r"""Self-heal: install a ``hermes-acp`` launcher next to the ``hermes`` one.
 
     Mirrors the launcher block in ``scripts/install.sh`` so existing installs
-    gain the ACP command on ``hermes update`` without a reinstall.  ACP hosts
+    gain the ACP command on ``numbers update`` without a reinstall.  ACP hosts
     (Zed, JetBrains, Buzz Desktop) spawn the agent by resolving the
     ``hermes-acp`` command name against the login-shell PATH; the console
     script of that name lives inside the install's venv, which is not on that
@@ -4907,7 +4907,7 @@ def _ensure_acp_launcher() -> None:
                 continue
             shim = (
                 "#!/usr/bin/env bash\n"
-                "# Hermes Agent — ACP launcher (written by `hermes update`).\n"
+                "# Hermes Agent — ACP launcher (written by `numbers update`).\n"
                 "# ACP hosts (Zed, JetBrains, Buzz) resolve the agent by this\n"
                 "# command name on the login-shell PATH.\n"
                 f'exec "{hermes_cmd}" acp "$@"\n'
@@ -4988,7 +4988,7 @@ def _run_pre_update_backup(args) -> Optional[str]:
       warning so a bloated state.db can never stall the update
       (issues #15733, #34600 are the reason this safety net exists).
     - ``full``  — the quick snapshot PLUS a full zip of HERMES_HOME under
-      ``backups/`` (restorable via ``hermes import``; the #48200 wrong-path
+      ``backups/`` (restorable via ``numbers import``; the #48200 wrong-path
       wipe is the reason this level exists).
 
     ``--backup`` forces ``full`` for one run; ``--no-backup`` forces ``off``.
@@ -5172,7 +5172,7 @@ def _run_pre_update_backup(args) -> Optional[str]:
         display_path = str(out_path)
 
     print(f"  Saved:    {display_path} ({size_str}, {elapsed:.1f}s)")
-    print(f"  Restore:  hermes import {out_path}")
+    print(f"  Restore:  numbers import {out_path}")
     print("  Disable:  set updates.pre_update_backup: quick (or off) in config.yaml")
     print()
     return snapshot_id
@@ -5235,11 +5235,11 @@ def _venv_core_imports_healthy() -> tuple[bool, str]:
     """Probe the project venv for the core imports the backend needs to boot.
 
     Runs a tiny import check inside the venv interpreter (NOT this process —
-    ``hermes update`` may be driven by a different Python). Catches the
+    ``numbers update`` may be driven by a different Python). Catches the
     half-updated-venv state: git checkout current but a dependency sync that
     failed or was killed partway (e.g. Windows access-denied on a loaded
     .pyd), leaving imports like ``fastapi``'s new transitive deps missing.
-    Without this probe, ``hermes update`` on a current checkout prints
+    Without this probe, ``numbers update`` on a current checkout prints
     "Already up to date!" and returns without ever re-syncing dependencies —
     the user's install stays broken no matter how many times they update
     (ryanc's incident, July 2026).
@@ -5701,7 +5701,7 @@ def _format_venv_python_holders_message(matches: list[tuple[int, str, str]]) -> 
     """Explain which venv processes block the update and how to clear them.
 
     Holder labels come from the parsed SUBCOMMAND, never substring matching
-    (#90778): a standalone ``hermes dashboard`` must not be labeled as the
+    (#90778): a standalone ``numbers dashboard`` must not be labeled as the
     Desktop backend (advice to close an app that isn't running), and flags
     like ``--preserve-cache`` must not match \"serve\". Unknown argv gets no
     hint rather than a wrong one.
@@ -5711,7 +5711,7 @@ def _format_venv_python_holders_message(matches: list[tuple[int, str, str]]) -> 
     ]
     hint_by_subcommand = {
         "serve": "  ← Hermes backend (if the Desktop app is open, close it)",
-        "dashboard": "  ← hermes dashboard (stop it: hermes dashboard stop, or close that terminal)",
+        "dashboard": "  ← numbers dashboard (stop it: numbers dashboard stop, or close that terminal)",
         "gateway": "  ← gateway",
     }
     for pid, name, cmdline in matches[:6]:
@@ -5730,8 +5730,8 @@ def _format_venv_python_holders_message(matches: list[tuple[int, str, str]]) -> 
     lines.append(
         "  Close the Hermes desktop app / other Hermes terminals, then re-run:"
     )
-    lines.append("    hermes update")
-    lines.append("  (or use `hermes update --force-venv` to proceed anyway at your own risk)")
+    lines.append("    numbers update")
+    lines.append("  (or use `numbers update --force-venv` to proceed anyway at your own risk)")
     return "\n".join(lines)
 
 def _venv_launcher_ancestors(pids: list[int]) -> list[int]:
@@ -5771,7 +5771,7 @@ def _venv_launcher_ancestors(pids: list[int]) -> list[int]:
     except OSError:
         venv_prefix = str(venv_dir).lower().rstrip(os.sep) + os.sep
 
-    # Never return ourselves or our own ancestry: a CLI ``hermes update``
+    # Never return ourselves or our own ancestry: a CLI ``numbers update``
     # runs from the venv python and would otherwise nominate itself.
     # Same #87594 carve-out as _detect_venv_python_processes: a GATEWAY
     # ancestor is not "our own ancestry" in the interactive sense — it is
@@ -5865,7 +5865,7 @@ def _refuse_gateway_ancestor_tree_kill(
 ) -> bool:
     """Refuse a plain Windows update that would kill its own process tree.
 
-    A chat agent can launch plain ``hermes update`` through its terminal tool.
+    A chat agent can launch plain ``numbers update`` through its terminal tool.
     In that topology the updater is a child of the gateway.  The leftover
     holder recovery below uses ``taskkill /T /F`` on Windows, so force-stopping
     that gateway also kills the updater before it can mutate the checkout
@@ -5905,7 +5905,7 @@ def _refuse_gateway_ancestor_tree_kill(
         "update can run."
     )
     print("  From a chat platform, use `/update` instead.")
-    print("  Otherwise, run `hermes update` from a separate terminal.")
+    print("  Otherwise, run `numbers update` from a separate terminal.")
     return True
 
 
@@ -6002,7 +6002,7 @@ def _relaunch_stopped_serves(token: dict) -> None:
     if skipped or failed:
         print(
             "  ⚠ Some stopped backends could not be relaunched automatically; "
-            "restart them manually (hermes serve --host <ip> --port <port>)."
+            "restart them manually (numbers serve --host <ip> --port <port>)."
         )
     try:
         from hermes_cli.update_receipt import record_step
@@ -6300,7 +6300,7 @@ def _stop_process_trees(
 
 
 def _looks_like_desktop_control_plane(cmdline: str) -> bool:
-    """True for this-install ``hermes serve`` / ``hermes dashboard`` argv.
+    """True for this-install ``numbers serve`` / ``numbers dashboard`` argv.
 
     That is the Desktop control plane, not the messaging gateway. Serve and
     dashboard do not host platform adapters (#92091); do not feed this into
@@ -6763,7 +6763,7 @@ def _pause_windows_gateways_for_update() -> dict | None:
         if respawnable < len(unmapped_pids):
             # Some had no recoverable command line (psutil missing, access
             # denied, already gone): those still need a manual restart.
-            print("    Restart manually after update: hermes gateway run")
+            print("    Restart manually after update: numbers gateway run")
 
     token = {
         "resume_needed": True,
@@ -6843,7 +6843,7 @@ def _cold_start_windows_gateway_after_update() -> bool:
     is installed, signalling the user wants a gateway. Unlike the relaunch
     paths — which watch an old PID and respawn once it exits — this is a direct
     fresh spawn via the same hidden-console + breakaway path that
-    ``hermes gateway start`` uses (``gateway_windows._spawn_detached``).
+    ``numbers gateway start`` uses (``gateway_windows._spawn_detached``).
 
     Best-effort and idempotent: re-checks that nothing is running first so a
     concurrent start (e.g. the autostart entry firing) can't produce a
@@ -6999,14 +6999,14 @@ def _warn_incomplete_gateway_fleet_restart(failed_units: list) -> None:
         # cannot revive a job launchd no longer knows about.
         print("  Listed services may be deregistered from launchd, or still")
         print("  running pre-update code (mixed sys.modules). Recover with:")
-        print("    hermes gateway status")
+        print("    numbers gateway status")
         print("    launchctl list | grep <label>")
         print("    launchctl bootstrap gui/$(id -u) "
               "~/Library/LaunchAgents/<label>.plist")
         return
     print("  Skipped units may still be running pre-update code (mixed")
     print("  sys.modules). Restart them manually, then verify:")
-    print("    hermes gateway status")
+    print("    numbers gateway status")
     if any(not name.startswith("ai.hermes.") for name in ordered):
         print("    systemctl --user restart <unit>   # user-scope")
         print("    sudo systemctl restart <unit>     # system-scope")
@@ -7058,7 +7058,7 @@ def _restart_launchd_gateway_after_update(
             print(
                 f"  ⚠ Gateway restart failed: {stderr}\n"
                 "    The gateway may be DOWN on pre-update code. "
-                "Recover manually: hermes gateway restart"
+                "Recover manually: numbers gateway restart"
             )
             return [], [current_label]
     except (FileNotFoundError, subprocess.TimeoutExpired) as e:
@@ -7069,7 +7069,7 @@ def _restart_launchd_gateway_after_update(
         print(
             "  ⚠ Could not restart the gateway "
             f"({e.__class__.__name__}: {e}).\n"
-            "    Recover manually: hermes gateway restart"
+            "    Recover manually: numbers gateway restart"
         )
         return [], [current_label]
 
@@ -7088,7 +7088,7 @@ def _restart_launchd_gateway_after_update(
         return [current_label], []
     print(
         f"  ✗ {current_label} restarted but launchd is not supervising it.\n"
-        "    Check logs, then: hermes gateway restart"
+        "    Check logs, then: numbers gateway restart"
     )
     return [], [current_label]
 
@@ -7270,7 +7270,7 @@ def _gateway_recovery_partition(
     unrecoverable.  The fresh child runs a separate ``hermes-serve*`` systemd
     pass that enumerates units from systemd rather than from this inventory,
     precisely because the ledger collector cannot classify a systemd-launched
-    ``hermes serve``: it records no spawner, so it reads as ``manual-serve``.
+    ``numbers serve``: it records no spawner, so it reads as ``manual-serve``.
     Whatever that unit pass does not reconcile is caught afterwards by
     :func:`_surviving_pre_update_serve_runtimes` (#92145).
     """
@@ -7313,7 +7313,7 @@ def _gateway_recovery_partition(
                     # NOT a claim that no supervisor exists. The ledger
                     # collector derives serve/dashboard supervisors from
                     # spawner liveness alone, and a systemd-launched
-                    # `hermes serve` sets neither HERMES_SPAWN nor
+                    # `numbers serve` sets neither HERMES_SPAWN nor
                     # HERMES_PARENT_PID, so it lands here as "manual-serve".
                     # Unit-backed serve runtimes are recovered by the
                     # fresh child's systemd pass, which enumerates
@@ -7367,15 +7367,15 @@ def _warn_gateway_restart_phase_aborted(exc: BaseException, pids) -> None:
         print("  Any gateway still running is serving pre-update code")
         print("  (mixed sys.modules) against the updated checkout.")
     print("  Restart it manually, then verify:")
-    print("    hermes gateway restart")
-    print("    hermes gateway status")
+    print("    numbers gateway restart")
+    print("    numbers gateway status")
 
 def _refresh_windows_gateway_launchers() -> None:
     """Regenerate installed Windows gateway launcher scripts after update.
 
     The Scheduled Task / Startup-folder launchers (``gateway.cmd`` +
     ``gateway.vbs``) are persistence artifacts written once at install time —
-    ``hermes update`` never touched them, so installs created before the
+    ``numbers update`` never touched them, so installs created before the
     hidden-console rework (aa2ae36c3f) kept launching the gateway through
     ``pythonw.exe`` forever: every descendant spawn flashed a conhost
     (#54220/#56747) and, since #70344, the console-less gateway died at
@@ -7411,7 +7411,7 @@ def _refresh_bootstrap_cache_scripts(branch: str = "main") -> None:
     2026-08-09 incident: a June 4 cached script's venv stage lacked the
     #81327 process-tree sweep and died on ``Access denied``). The binary
     has no self-update path, so the poisoned cache outlives every
-    ``hermes update``.
+    ``numbers update``.
 
     Overwriting the cached script for *branch* with the freshly pulled
     ``scripts/install.ps1`` / ``scripts/install.sh`` on every update turns
@@ -7636,7 +7636,7 @@ def _resume_windows_gateways_after_update(token: dict | None) -> None:
                 "    (The respawned gateway may have been killed by a parent "
                 "Job Object during updater teardown, #48820.)"
             )
-            print("    Recover with: hermes gateway restart")
+            print("    Recover with: numbers gateway restart")
             raise RuntimeError(
                 "Windows gateway relaunch after update was not verified alive"
             )
@@ -7691,7 +7691,7 @@ def _portable_git_candidates() -> list:
 
     The Hermes-managed PortableGit tree lives under the SHARED root
     (``<root>/git/...``), not the profile-scoped HERMES_HOME
-    (``<root>/profiles/<name>``), so a profile-scoped ``hermes update`` must
+    (``<root>/profiles/<name>``), so a profile-scoped ``numbers update`` must
     look there (monerostar review, #87876). The profile-home candidate is
     kept as a fallback for custom layouts that place it there.
     """
@@ -7775,7 +7775,7 @@ def _discard_lockfile_churn(git_cmd, repo_root):
 
     npm rewrites lockfiles non-deterministically at install/build time. On a
     managed install those diffs are never intentional, so we discard them so
-    ``hermes update`` sees a clean tree instead of autostashing every run.
+    ``numbers update`` sees a clean tree instead of autostashing every run.
     Best-effort; only ever touches files named ``package-lock.json``.
     """
     try:
@@ -7821,7 +7821,7 @@ def _normalize_managed_eol(git_cmd, repo_root):
     overwritten", so ``install.ps1`` pins ``core.autocrlf=false`` on the managed
     clone (#67730). Checkouts created before that landed never got the pin and
     cannot receive it — the bootstrap installer reuses its build-pinned
-    ``install.ps1`` forever — so ``hermes update``, which ships with the checkout
+    ``install.ps1`` forever — so ``numbers update``, which ships with the checkout
     itself, is the only path left that can fix them.
 
     The pin and the cleanup are one operation. Under ``autocrlf=true`` git
@@ -7956,7 +7956,7 @@ def _rebuild_desktop_after_update(
 
     print("→ Checking if desktop app needs rebuilding...")
     # Consult the content-hash stamp IN-PROCESS first. The spawned
-    # `hermes desktop --build-only` subprocess re-imports the whole CLI stack
+    # `numbers desktop --build-only` subprocess re-imports the whole CLI stack
     # (~1-3 s) just to reach the same _m()._desktop_build_needed check; when
     # the stamp already says "up to date" we can skip the spawn entirely. The
     # update path never passes --source, so the subprocess would run with
@@ -7981,8 +7981,8 @@ def _rebuild_desktop_after_update(
     # surface the captured tail so the failure is debuggable.
     #
     # Start the build subprocess with the Hermes-managed Node on PATH: when
-    # `hermes update` runs inside the desktop updater chain (Desktop →
-    # hermes-setup → hermes update), the shell PATH customizations are lost,
+    # `numbers update` runs inside the desktop updater chain (Desktop →
+    # hermes-setup → numbers update), the shell PATH customizations are lost,
     # so a bare-PATH child would fail with `node: not found` before cmd_gui can
     # self-heal.
     from hermes_constants import with_hermes_node_path
@@ -7996,7 +7996,7 @@ def _rebuild_desktop_after_update(
             desktop_build_cmd, cwd=_m().PROJECT_ROOT, env=build_env
         )
     if build_result.returncode != 0:
-        print("  ⚠ Desktop build failed (run `hermes desktop` to retry)")
+        print("  ⚠ Desktop build failed (run `numbers desktop` to retry)")
         tail = "\n".join((build_result.stdout or "").strip().splitlines()[-15:])
         if tail:
             print(tail)
@@ -8025,7 +8025,7 @@ def _venv_foreign_owned_paths(venv_root, limit: int = 5) -> list:
 
     A venv that was ever touched by ``sudo pip`` / ``sudo hermes`` contains
     root-owned files (classically ``*.dist-info/INSTALLER``). A later normal
-    ``hermes update`` then dies mid-mutation inside ``uv pip install -e .``
+    ``numbers update`` then dies mid-mutation inside ``uv pip install -e .``
     ("Permission denied (os error 13)") with ``venv/bin/hermes`` already
     deleted — the CLI is bricked. Same philosophy as the contended-venv gate
     (#87331): a venv we cannot safely mutate is never mutated at all.
@@ -8118,7 +8118,7 @@ def _refuse_update_if_venv_foreign_owned(project_root) -> None:
         print(f"    - {p} (owner uid {uid})")
     print("\n  Fix ownership, then re-run the update:")
     print(f"    sudo chown -R $(id -un): {project_root}")
-    print("    hermes update")
+    print("    numbers update")
     print("\n  Nothing in the venv was modified.")
     sys.exit(1)
 
@@ -8128,18 +8128,18 @@ def _drain_or_signal_gateway_for_update(
     drain_budget: float,
     label: str,
 ) -> bool:
-    """Decide how ``hermes update`` hands a running gateway over to new code.
+    """Decide how ``numbers update`` hands a running gateway over to new code.
 
     Three-way triage shared by the systemd and bare-process restart paths:
 
     1. **Gateway is an ancestor of this process** — THREE-WAY DEADLOCK BREAK
-       (#100179). When ``hermes update`` runs INSIDE the gateway's own
+       (#100179). When ``numbers update`` runs INSIDE the gateway's own
        process tree (the hermes-auto-update cron job is the canonical case),
        waiting for that gateway to exit is a circular wait::
 
            gateway  waits on all in-flight work units (#77184)
-             └─ cron agent session waits on the `hermes update` process
-                  └─ `hermes update` waits on the gateway to exit  ← back to A
+             └─ cron agent session waits on the `numbers update` process
+                  └─ `numbers update` waits on the gateway to exit  ← back to A
 
        The wedged-loop probe cannot break it: the cron session posts
        activity every ~180s (process-tool poll return), so it is "actively
@@ -8331,7 +8331,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
         )
 
     # With gateways paused, anything still running from the venv interpreter
-    # (most commonly the Desktop app's `hermes serve` backend) will keep .pyd
+    # (most commonly the Desktop app's `numbers serve` backend) will keep .pyd
     # files locked and corrupt the dependency sync below. Refuse rather than
     # race: killing the desktop backend is futile (the app supervises and
     # respawns it), so the user must close the app. Deliberately NOT bypassed
@@ -8415,7 +8415,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                 _venv_holders = _m()._detect_venv_python_processes()
         if _venv_holders:
             # Manual serve/dashboard rung (#63206): a network-bound
-            # `hermes serve --host <ip>` powering a REMOTE Desktop holds the
+            # `numbers serve --host <ip>` powering a REMOTE Desktop holds the
             # venv and used to dead-end the update with exit 2 — the user's
             # only option was killing the backend by hand, and nothing ever
             # brought it back (the remote client's endpoint stayed dead).
@@ -8499,7 +8499,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             sys.exit(2)
 
     # Self-lock deferral moved: the venv-holder sweep above excludes this
-    # process by design (a CLI `hermes update` IS the venv python), and an
+    # process by design (a CLI `numbers update` IS the venv python), and an
     # updater that has imported a native venv extension cannot rewrite its
     # own mapped .pyd (#83569). That check used to run HERE — before the
     # fetch — but firing pre-fetch meant a deferral stranded the user on the
@@ -9019,7 +9019,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                 else:
                     current_checkout_complete = False
                     print(f"⚠ Venv still unhealthy after repair: {detail_after}")
-                    print("  Close all Hermes windows/gateways and re-run: hermes update")
+                    print("  Close all Hermes windows/gateways and re-run: numbers update")
             else:
                 current_checkout_complete = _repair_node_deps_on_current_checkout(
                     _print_verified_update_completion,
@@ -9079,7 +9079,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
         # Capture the pre-pull SHA so we can auto-roll-back if the new code
         # has a syntax error in a critical-path file (PR #28452 incident:
         # orphan merge-conflict markers in hermes_cli/config.py bricked
-        # every user who ran ``hermes update`` for the 7 minutes between
+        # every user who ran ``numbers update`` for the 7 minutes between
         # the bad commit and the fix landing).
         pre_pull_sha = _capture_head_sha(git_cmd, _m().PROJECT_ROOT)
         try:
@@ -9258,7 +9258,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                     )
                     if rollback_result.returncode == 0:
                         print("  ✓ Rollback complete — your install is unchanged.")
-                        print("  Try ``hermes update`` again later once a fix lands.")
+                        print("  Try ``numbers update`` again later once a fix lands.")
                     else:
                         print("  ✗ Rollback failed. Recover manually with:")
                         print(f"    cd {_m().PROJECT_ROOT} && git reset --hard {pre_pull_sha}")
@@ -9310,9 +9310,9 @@ def _cmd_update_impl(args, gateway_mode: bool):
         # applied: a checkout that is pinned to a raw SHA (detached HEAD) can
         # report "N new commit(s)" against origin yet still sit on the old
         # commit afterward (the branch-switch step re-detaches to the SHA).
-        # Before this guard, ``hermes update`` printed "✓ Code updated!" and
+        # Before this guard, ``numbers update`` printed "✓ Code updated!" and
         # reinstalled deps + rebuilt the desktop app against the stale tree —
-        # no error, no warning, ``hermes doctor`` healthy. Compare pre-pull
+        # no error, no warning, ``numbers doctor`` healthy. Compare pre-pull
         # and post-pull HEAD; if they match, surface the no-op instead of
         # claiming success.
         post_pull_sha = _capture_head_sha(git_cmd, _m().PROJECT_ROOT)
@@ -9325,7 +9325,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             )
             print(
                 "  Reattach to the branch and retry: "
-                f"git -C {_m().PROJECT_ROOT} checkout {branch} && hermes update"
+                f"git -C {_m().PROJECT_ROOT} checkout {branch} && numbers update"
             )
             _m()._resume_windows_gateways_after_update(_windows_gateway_resume)
             sys.exit(1)
@@ -9358,7 +9358,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             )
             print(
                 "  Switch to the target branch and retry: "
-                f"git -C {_m().PROJECT_ROOT} checkout {branch} && hermes update"
+                f"git -C {_m().PROJECT_ROOT} checkout {branch} && numbers update"
             )
             _m()._resume_windows_gateways_after_update(_windows_gateway_resume)
             sys.exit(1)
@@ -9366,7 +9366,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
         # #95294: HEAD advanced; running gateways still serve pre-pull
         # modules until the restart phase below. Any interrupt between here
         # and a completed (or no-op) restart leaves this marker so the next
-        # ``hermes update`` can catch up even when git is already up to date.
+        # ``numbers update`` can catch up even when git is already up to date.
         # Distinct from ``.update-incomplete`` (venv/install repair).
         _write_fleet_restart_pending_marker(expected_sha=post_pull_sha or "")
 
@@ -9558,7 +9558,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             print()
             print(f"  ⚠ {failing_module} still fails to import after updating:")
             print(f"      {import_error}")
-            print("    Run `hermes update` again — if it persists, reinstall:")
+            print("    Run `numbers update` again — if it persists, reinstall:")
             print("    https://hermes-agent.nousresearch.com")
 
         node_failures = _update_node_dependencies()
@@ -9641,7 +9641,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             if result.get("user_modified"):
                 print(f"  ~ {len(result['user_modified'])} user-modified (kept)")
                 print(
-                    "    → see them: hermes skills list-modified  "
+                    "    → see them: numbers skills list-modified  "
                     "(diff/reset to resume updates)"
                 )
             if result.get("cleaned"):
@@ -9758,7 +9758,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
         # Most-recent curator run notice — show-once per run. Surfaces the
         # rename map (`old-name → umbrella`) on the high-attention update
         # surface so users learn about consolidations without having to
-        # check `hermes curator status`. Self-stamps after printing so it
+        # check `numbers curator status`. Self-stamps after printing so it
         # never repeats for the same run.
         try:
             _print_curator_recent_run_notice()
@@ -9802,7 +9802,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
         # Refresh the cua-driver binary used by the Computer Use toolset.
         # The upstream installer is gated on supported platforms and on the
         # binary already being on PATH, so this is a no-op for users who
-        # don't have it. Tying the refresh to ``hermes update`` gives users a
+        # don't have it. Tying the refresh to ``numbers update`` gives users a
         # predictable cadence (matches when they pull new agent code) without
         # adding startup latency or a per-launch GitHub API call.
         try:
@@ -9831,8 +9831,8 @@ def _cmd_update_impl(args, gateway_mode: bool):
                 # silent) upstream installer when the driver's native
                 # check-update verb positively reports a newer release.
                 # An indeterminate check (offline, rate-limited, old
-                # driver) keeps the installed version — `hermes update`
-                # must stay fast; `hermes computer-use install --upgrade`
+                # driver) keeps the installed version — `numbers update`
+                # must stay fast; `numbers computer-use install --upgrade`
                 # remains the force path. Windows also defers confirmed
                 # updates and contract repairs to that explicit command
                 # because the upstream installer may prompt for console/UAC
@@ -9846,7 +9846,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             logger.debug("cua-driver refresh failed: %s", e)
 
         # Write exit code *before* the gateway restart attempt.
-        # When running as ``hermes update --gateway`` (spawned by the gateway's
+        # When running as ``numbers update --gateway`` (spawned by the gateway's
         # /update command), this process lives inside the gateway's systemd
         # cgroup.  A graceful SIGUSR1 restart keeps the drain loop alive long
         # enough for the exit-code marker to be written below, but the
@@ -10132,7 +10132,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                         print(
                             f"  ⚠ systemctl timed out listing {scope}-scope "
                             f"gateway units ({exc.cmd if exc.cmd else 'unknown command'}). "
-                            f"Check the gateway with: hermes gateway status"
+                            f"Check the gateway with: numbers gateway status"
                         )
                         continue
 
@@ -10299,7 +10299,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                                 f"  ⚠ {svc_name} is a system service and restarting it needs root.\n"
                                 f"    Restart it manually to load the new version:\n"
                                 f"      sudo systemctl restart {svc_name}\n"
-                                f"    To let `hermes update` restart it automatically, allow\n"
+                                f"    To let `numbers update` restart it automatically, allow\n"
                                 f"    passwordless sudo for systemctl, or run updates with sudo."
                             )
                             return
@@ -10318,7 +10318,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                         # the RestartSec backoff and leave the unit
                         # dead.  Clearing the failed state first makes
                         # the restart idempotent.  Mirrors the recovery
-                        # path in `hermes gateway restart`
+                        # path in `numbers gateway restart`
                         # (`systemd_restart()`) as of PR #20949.
                         subprocess.run(
                             _manage_cmd + ["reset-failed", svc_name],
@@ -10536,7 +10536,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                 )
                 if unmapped_count:
                     print(f"  → Stopped {unmapped_count} manual gateway process(es)")
-                    print("    Restart manually: hermes gateway run")
+                    print("    Restart manually: numbers gateway run")
                     if unmapped_count > 1:
                         print(
                             "    (or: hermes -p <profile> gateway run  for each profile)"
@@ -10661,7 +10661,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             # A serve/dashboard runtime that is still the SAME process the
             # pre-update inventory saw is a live runtime on the pre-update
             # code generation — the exact unsafe state of #92145, and the one
-            # the reporter hit through tui_gateway (hosted by `hermes serve`,
+            # the reporter hit through tui_gateway (hosted by `numbers serve`,
             # which is not a gateway profile and which no `gateway restart`
             # command can reach). Recovery may not report success while one
             # is still there, and it must never kill one: a manual or
@@ -10812,7 +10812,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
         # When both hermes.service (from a pre-rename install) and the
         # current hermes-gateway.service are enabled, they SIGTERM-fight
         # for the same bot token (see PR #11909). Flagging here means
-        # every `hermes update` surfaces the issue until the user migrates.
+        # every `numbers update` surfaces the issue until the user migrates.
         try:
             from hermes_cli.gateway import (
                 has_legacy_hermes_units,
@@ -10831,7 +10831,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
                 print("  hermes-gateway.service for the bot token and cause SIGTERM")
                 print("  flap loops. Remove them with:")
                 print()
-                print("    hermes gateway migrate-legacy")
+                print("    numbers gateway migrate-legacy")
                 print()
                 print("  (add `sudo` if any are in system scope)")
         except Exception as e:
@@ -10854,7 +10854,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
         # pre-update code generations (#100479). This is the SUCCESS-path
         # twin of the abort-recovery probe above: the restart phase only
         # restarts units, so an sshd-spawned `serve --isolated` or a manual
-        # `hermes serve` (no unit) is left running its pre-update
+        # `numbers serve` (no unit) is left running its pre-update
         # sys.modules graph — and its cron ticker keeps firing agent jobs
         # that ImportError on every symbol added in the pulled range. Runs
         # AFTER the dashboard cleanup so a manual dashboard that cleanup
@@ -10872,7 +10872,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
 
         print()
         print("Tip: You can now select a provider and model:")
-        print("  hermes model              # Select provider and model")
+        print("  numbers model              # Select provider and model")
 
         # Phase 1 (#91277): post-update fleet version verification. Compare
         # every live gateway's stamped code_sha against the freshly-updated
@@ -11020,7 +11020,7 @@ def _cmd_update_impl(args, gateway_mode: bool):
             # runs pre-update modules — surface that as a failed update so
             # automation / operators do not treat the fleet as healthy.
             # Leave ``fleet_restart_pending`` in place so the next
-            # ``hermes update`` still runs the catch-up restart.
+            # ``numbers update`` still runs the catch-up restart.
             sys.exit(1)
         _clear_fleet_restart_pending_marker()
 

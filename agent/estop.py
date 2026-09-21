@@ -1,7 +1,7 @@
 """Global emergency stop (ESTOP) — a resumable pause for NEW work only.
 
-``hermes pause`` writes a sentinel file at ``$HERMES_HOME/ESTOP``;
-``hermes resume`` removes it. While the sentinel exists:
+``numbers pause`` writes a sentinel file at ``$HERMES_HOME/ESTOP``;
+``numbers resume`` removes it. While the sentinel exists:
 
 * the cron scheduler skips dispatching due jobs (``cron/scheduler.py:tick``),
 * the embedded kanban dispatcher skips spawning workers
@@ -55,7 +55,7 @@ def _canonical_root() -> Path:
     """Fleet-wide Hermes root, even when this process is a profile gateway.
 
     Profile gateways launch with HERMES_HOME=~/.hermes/profiles/<name>.
-    ``hermes pause`` from an operator seat writes ~/.hermes/ESTOP. If we
+    ``numbers pause`` from an operator seat writes ~/.hermes/ESTOP. If we
     only inspect the profile home, the emergency stop does not bind
     (jarvis-os/t_7b65ff88: fleet-analyst kept dispatching through pause).
     """
@@ -67,7 +67,7 @@ def _canonical_root() -> Path:
 
 
 def sentinel_path() -> Path:
-    """Path of the ESTOP sentinel this process would write on `hermes pause`."""
+    """Path of the ESTOP sentinel this process would write on `numbers pause`."""
     return _hermes_home() / SENTINEL_NAME
 
 
@@ -130,7 +130,7 @@ def disengage() -> bool:
     """Remove ESTOP sentinels this process can see.
 
     Lifts both the process-local sentinel and the fleet-root sentinel so
-    ``hermes resume`` from a profile gateway still clears an operator pause
+    ``numbers resume`` from a profile gateway still clears an operator pause
     written at ~/.hermes/ESTOP.
     """
     lifted = False
@@ -188,11 +188,11 @@ def paused_reply() -> Optional[str]:
     if reason:
         return (
             f"⏸️ Hermes is paused ({reason}). New work is on hold; "
-            "run `hermes resume` to pick things back up."
+            "run `numbers resume` to pick things back up."
         )
     return (
         "⏸️ Hermes is paused. New work is on hold; "
-        "run `hermes resume` to pick things back up."
+        "run `numbers resume` to pick things back up."
     )
 
 
@@ -217,7 +217,7 @@ def check_paused(component: str, logger: logging.Logger) -> bool:
         suffix = f" (reason: {reason})" if reason else ""
         logger.info(
             "%s dispatch paused by global emergency stop%s — remove with "
-            "`hermes resume` (%s)",
+            "`numbers resume` (%s)",
             component,
             suffix,
             sentinel_path(),

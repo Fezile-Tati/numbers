@@ -1,4 +1,4 @@
-"""``hermes plugins`` CLI subcommand — install, update, remove, and list plugins.
+"""``numbers plugins`` CLI subcommand — install, update, remove, and list plugins.
 
 Plugins are installed from Git repositories into ``~/.hermes/plugins/``.
 Supports full URLs and ``owner/repo`` shorthand (resolves to GitHub).
@@ -838,7 +838,7 @@ def _install_plugin_core(
         if target.exists() and not force:
             raise PluginOperationError(
                 f"Plugin '{plugin_name}' already exists. Use force reinstall "
-                f"or run `hermes plugins update {plugin_name}`."
+                f"or run `numbers plugins update {plugin_name}`."
             )
         prior = old_metadata.get(plugin_name)
         if (
@@ -927,7 +927,7 @@ def _resolve_index_name(identifier: str, console) -> tuple[str, Optional[str]]:
         else:
             console.print(
                 f"[red]Error:[/red] Plugin '{identifier}' was not found in the "
-                f"community index ({source}). Use `hermes plugins search <term>` to "
+                f"community index ({source}). Use `numbers plugins search <term>` to "
                 "browse, or install directly with an owner/repo identifier."
             )
         sys.exit(1)
@@ -1061,7 +1061,7 @@ def cmd_install(
     else:
         console.print(
             f"[dim]Plugin installed but not enabled. "
-            f"Run `hermes plugins enable {installed_name}` to activate.[/dim]",
+            f"Run `numbers plugins enable {installed_name}` to activate.[/dim]",
         )
 
     # Capability consent (#64228): if the manifest declares capabilities,
@@ -1076,7 +1076,7 @@ def cmd_install(
         )
 
     console.print("[dim]Restart the gateway for the plugin to take effect:[/dim]")
-    console.print("[dim]  hermes gateway restart[/dim]")
+    console.print("[dim]  numbers gateway restart[/dim]")
     console.print()
 
 
@@ -1105,7 +1105,7 @@ def cmd_update(name: str) -> None:
         console.print(
             f"[red]Error:[/red] Plugin '{name}' is pinned to "
             f"{install_record.get('revision')}. To move it, run "
-            f"`hermes plugins install {recorded_source} --force "
+            f"`numbers plugins install {recorded_source} --force "
             "--ref <40-character commit SHA>`."
         )
         sys.exit(1)
@@ -1160,7 +1160,7 @@ def cmd_update(name: str) -> None:
                     _save_disabled_set(disabled)
                 console.print(
                     f"[red]Plugin '{name}' has been disabled.[/red] Review the "
-                    f"findings, then re-enable with `hermes plugins enable {name}` "
+                    f"findings, then re-enable with `numbers plugins enable {name}` "
                     f"if you trust them.",
                 )
 
@@ -1285,7 +1285,7 @@ _BASIC_AUTH_PLUGIN_KEYS = frozenset({"basic", "dashboard_auth/basic"})
 def ensure_basic_auth_plugin_enabled_in_config(cfg: dict) -> bool:
     """Re-enable the bundled basic dashboard-auth plugin in *cfg*.
 
-    ``hermes setup`` / ``hermes plugins disable basic`` can park the plugin
+    ``numbers setup`` / ``numbers plugins disable basic`` can park the plugin
     in ``plugins.disabled`` while ``dashboard.basic_auth`` is configured.
     The basic provider is a bundled backend that still respects the
     deny-list, so password auth silently fails until the block is removed.
@@ -1342,7 +1342,7 @@ def _resolve_plugin_key(name: str) -> Optional[str]:
     returns the canonical key the loader gates on (``manifest.key`` or, for a
     flat plugin, the bare name). Returns ``None`` when no plugin matches.
 
-    This is the single normalization point so ``hermes plugins enable`` /
+    This is the single normalization point so ``numbers plugins enable`` /
     ``disable`` write the same key that ``PluginManager`` matches against —
     nested category plugins (e.g. ``observability/langfuse``) included.
     """
@@ -1585,8 +1585,8 @@ def _run_capability_consent(
         console.print(
             "  [yellow]Non-interactive session: capabilities NOT granted "
             "(fail closed).[/yellow] Run "
-            f"`hermes plugins capabilities {plugin_id}` to review and "
-            f"`hermes plugins enable {plugin_id}` to grant interactively."
+            f"`numbers plugins capabilities {plugin_id}` to review and "
+            f"`numbers plugins enable {plugin_id}` to grant interactively."
         )
         return False
 
@@ -1605,13 +1605,13 @@ def _run_capability_consent(
     console.print(
         f"  [dim]Declined. {plugin_id} stays enabled with these capabilities "
         "off; it should degrade gracefully (ctx.has_capability()). Re-run "
-        f"`hermes plugins enable {plugin_id}` to grant later.[/dim]"
+        f"`numbers plugins enable {plugin_id}` to grant later.[/dim]"
     )
     return False
 
 
 def cmd_capabilities(name: Optional[str] = None) -> None:
-    """``hermes plugins capabilities [<id>]`` — declared vs granted."""
+    """``numbers plugins capabilities [<id>]`` — declared vs granted."""
     from rich.console import Console
 
     from hermes_cli.plugin_capabilities import granted_capabilities
@@ -1702,7 +1702,7 @@ def _resolve_tool_override_grant(
     else:
         console.print(
             f"[dim]{key} may not override built-in tools. Re-run "
-            f"`hermes plugins enable {key} --allow-tool-override` to grant "
+            f"`numbers plugins enable {key} --allow-tool-override` to grant "
             "this later.[/dim]"
         )
 
@@ -1899,7 +1899,7 @@ def _discover_entrypoint_plugins() -> list[tuple[str, str, str, str]]:
 
     Entry-point plugins are installed as Python packages, so they do not have a
     plugin directory under ``~/.hermes/plugins``. Include package metadata here
-    so ``hermes plugins list`` can show and enable them.
+    so ``numbers plugins list`` can show and enable them.
     """
     from hermes_cli.plugins import ENTRY_POINTS_GROUP
 
@@ -1938,7 +1938,7 @@ def _plugin_status(name: str, enabled: set, disabled: set, key: str = "") -> str
 
 
 def _filter_plugin_entries(entries: list, args: Any, enabled: set, disabled: set) -> list:
-    """Apply ``hermes plugins list`` CLI filters."""
+    """Apply ``numbers plugins list`` CLI filters."""
     filtered = entries
     if getattr(args, "no_bundled", False) or getattr(args, "user", False):
         filtered = [entry for entry in filtered if entry[3] != "bundled"]
@@ -1959,7 +1959,7 @@ def cmd_list(args: Any | None = None) -> None:
     entries = _discover_all_plugins()
     if not entries:
         console.print("[dim]No plugins installed.[/dim]")
-        console.print("[dim]Install with:[/dim] hermes plugins install owner/repo")
+        console.print("[dim]Install with:[/dim] numbers plugins install owner/repo")
         return
 
     enabled = _get_enabled_set()
@@ -2010,9 +2010,9 @@ def cmd_list(args: Any | None = None) -> None:
     console.print()
     console.print(table)
     console.print()
-    console.print("[dim]Compact view:[/dim] hermes plugins list --plain --no-bundled")
-    console.print("[dim]Interactive toggle:[/dim] hermes plugins")
-    console.print("[dim]Enable/disable:[/dim] hermes plugins enable/disable <name>")
+    console.print("[dim]Compact view:[/dim] numbers plugins list --plain --no-bundled")
+    console.print("[dim]Interactive toggle:[/dim] numbers plugins")
+    console.print("[dim]Enable/disable:[/dim] numbers plugins enable/disable <name>")
     console.print("[dim]Plugins are opt-in by default — only 'enabled' plugins load.[/dim]")
 
 
@@ -2204,7 +2204,7 @@ def cmd_show(name: str) -> None:
 
     if match is None:
         console.print(f"[red]Plugin '{name}' not found.[/red]")
-        console.print("[dim]List installed plugins:[/dim] hermes plugins list")
+        console.print("[dim]List installed plugins:[/dim] numbers plugins list")
         sys.exit(1)
 
     pname, version, description, source, dir_path, key = match
@@ -2248,7 +2248,7 @@ def cmd_toggle() -> None:
     # canonical key (``web/firecrawl``), while the manifest name may differ
     # (``web-firecrawl``). Persisting the bare name here caused the two
     # forms to drift: the menu would write ``web-firecrawl`` to
-    # plugins.disabled, but ``hermes plugins enable web/firecrawl`` cleared
+    # plugins.disabled, but ``numbers plugins enable web/firecrawl`` cleared
     # only the key — so "explicit disable wins" kept a bundled backend off
     # forever (pi314's #40190 symptom). Keys keep every surface aligned.
     plugin_keys = []
@@ -2285,7 +2285,7 @@ def cmd_toggle() -> None:
 
     if not has_plugins and not has_categories:
         console.print("[dim]No plugins installed and no provider categories available.[/dim]")
-        console.print("[dim]Install with:[/dim] hermes plugins install owner/repo")
+        console.print("[dim]Install with:[/dim] numbers plugins install owner/repo")
         return
 
     # Non-TTY fallback
@@ -2853,7 +2853,7 @@ def dashboard_update_user_plugin(name: str) -> dict[str, Any]:
             "ok": False,
             "error": (
                 f"Plugin '{name}' is pinned to {install_record.get('revision')}; "
-                f"run `hermes plugins install {recorded_source} --force "
+                f"run `numbers plugins install {recorded_source} --force "
                 "--ref <40-character commit SHA>` to move it."
             ),
         }
@@ -2875,7 +2875,7 @@ def dashboard_update_user_plugin(name: str) -> dict[str, Any]:
             metadata[target.name] = install_record
             _write_install_metadata(metadata)
 
-    # Sibling of the CLI ``hermes plugins update`` path: drop bytecode
+    # Sibling of the CLI ``numbers plugins update`` path: drop bytecode
     # compiled from the pre-pull plugin revision.
     _clear_plugin_bytecode(target)
 
@@ -2939,7 +2939,7 @@ def _git_pull_plugin_dir(target: Path) -> tuple[bool, str]:
     would be overwritten by merge" — making the plugin permanently
     un-updatable until they hand-run git. Same UX class Factory Droid fixed
     in v0.188 ("Updating a plugin marketplace now succeeds when its checkout
-    has local changes"), and the same autostash approach ``hermes update``
+    has local changes"), and the same autostash approach ``numbers update``
     already uses for the main checkout (PR #70161).
 
     Flow: clean tree → plain pull (unchanged). Dirty tree → stash push
@@ -3114,12 +3114,12 @@ def cmd_search(
             desc = desc[:67] + "..."
         table.add_row(e.name, desc, e.author, ", ".join(e.tags))
     console.print(table)
-    console.print(f"[dim]Index source: {source}. Install: hermes plugins install <name>[/dim]")
+    console.print(f"[dim]Index source: {source}. Install: numbers plugins install <name>[/dim]")
     console.print(f"[dim]{SECURITY_FOOTER}[/dim]")
 
 
 def plugins_command(args) -> None:
-    """Dispatch hermes plugins subcommands."""
+    """Dispatch numbers plugins subcommands."""
     action = getattr(args, "plugins_action", None)
 
     if action == "install":

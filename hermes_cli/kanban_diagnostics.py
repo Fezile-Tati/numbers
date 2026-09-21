@@ -13,7 +13,7 @@ stuck blocked for too long, etc. Each one carries:
 Rules run over (task, recent events, recent runs, optional graph context) and
 emit diagnostics. They are stateless and read-only — no DB writes. Callers compute
 diagnostics on demand (on ``/board`` load, ``/tasks/:id`` fetch, or
-``hermes kanban diagnostics``).
+``numbers kanban diagnostics``).
 
 Design goals:
 
@@ -375,7 +375,7 @@ def _rule_triage_aux_unavailable(task, events, runs, now, cfg) -> list[Diagnosti
     With the auto-decompose dispatcher (kanban.auto_decompose, default True),
     triage tasks fan out via ``auxiliary.kanban_decomposer`` and fall back to
     ``auxiliary.triage_specifier`` when the decomposer returns ``fanout=false``.
-    With auto-decompose off, the user must run ``hermes kanban specify``,
+    With auto-decompose off, the user must run ``numbers kanban specify``,
     which only needs ``auxiliary.triage_specifier``.
 
     The default slot is ``provider: auto`` → auto-falls back to the main model,
@@ -418,7 +418,7 @@ def _rule_triage_aux_unavailable(task, events, runs, now, cfg) -> list[Diagnosti
         primary_desc = "specifier"
         detail_path = (
             "Auto-decompose is off, so triage tasks need "
-            "`hermes kanban specify`, which uses auxiliary.triage_specifier."
+            "`numbers kanban specify`, which uses auxiliary.triage_specifier."
         )
 
     # The primary slot is usable when either: it was explicitly configured by
@@ -434,7 +434,7 @@ def _rule_triage_aux_unavailable(task, events, runs, now, cfg) -> list[Diagnosti
             label=f"Configure {primary_slot}",
             payload={
                 "command": (
-                    f"hermes config set {primary_slot}.provider auto"
+                    f"numbers config set {primary_slot}.provider auto"
                 )
             },
             suggested=True,
@@ -446,15 +446,15 @@ def _rule_triage_aux_unavailable(task, events, runs, now, cfg) -> list[Diagnosti
             label=f"Or configure fallback {fallback_slot}",
             payload={
                 "command": (
-                    f"hermes config set {fallback_slot}.provider auto"
+                    f"numbers config set {fallback_slot}.provider auto"
                 )
             },
         ))
     if not auto_decompose:
         actions.append(DiagnosticAction(
             kind="cli_hint",
-            label=f"Specify manually: hermes kanban specify {task_id}",
-            payload={"command": f"hermes kanban specify {task_id}"},
+            label=f"Specify manually: numbers kanban specify {task_id}",
+            payload={"command": f"numbers kanban specify {task_id}"},
         ))
 
     return [Diagnostic(
@@ -598,8 +598,8 @@ def _rule_repeated_failures(task, events, runs, now, cfg) -> list[Diagnostic]:
         if task_id:
             actions.append(DiagnosticAction(
                 kind="cli_hint",
-                label=f"Check logs: hermes kanban log {task_id}",
-                payload={"command": f"hermes kanban log {task_id}"},
+                label=f"Check logs: numbers kanban log {task_id}",
+                payload={"command": f"numbers kanban log {task_id}"},
                 suggested=True,
             ))
     actions.extend(_generic_recovery_actions(
@@ -713,8 +713,8 @@ def _rule_repeated_crashes(task, events, runs, now, cfg) -> list[Diagnostic]:
     if task_id:
         actions.append(DiagnosticAction(
             kind="cli_hint",
-            label=f"Check logs: hermes kanban log {task_id}",
-            payload={"command": f"hermes kanban log {task_id}"},
+            label=f"Check logs: numbers kanban log {task_id}",
+            payload={"command": f"numbers kanban log {task_id}"},
             suggested=True,
         ))
     running = _task_field(task, "status") == "running"
@@ -794,14 +794,14 @@ def _rule_review_dependency_deadlock(task, events, runs, now, cfg) -> list[Diagn
         actions.append(DiagnosticAction(
             kind="cli_hint",
             label="Complete the finished implementation phase",
-            payload={"command": f"hermes kanban complete {task_id}"},
+            payload={"command": f"numbers kanban complete {task_id}"},
             suggested=True,
         ))
     if task_id and child_ids:
         actions.append(DiagnosticAction(
             kind="cli_hint",
             label="Or unlink the incorrectly gated reviewer",
-            payload={"command": f"hermes kanban unlink {task_id} {child_ids[0]}"},
+            payload={"command": f"numbers kanban unlink {task_id} {child_ids[0]}"},
         ))
 
     blocked_at = _event_ts(latest_block) or now
@@ -929,8 +929,8 @@ def _rule_block_unblock_cycling(task, events, runs, now, cfg) -> list[Diagnostic
     if task_id:
         actions.append(DiagnosticAction(
             kind="cli_hint",
-            label=f"Check block reasons: hermes kanban events {task_id}",
-            payload={"command": f"hermes kanban events {task_id}"},
+            label=f"Check block reasons: numbers kanban events {task_id}",
+            payload={"command": f"numbers kanban events {task_id}"},
             suggested=True,
         ))
     return [Diagnostic(
@@ -1050,7 +1050,7 @@ def _rule_stranded_in_ready(task, events, runs, now, cfg) -> list[Diagnostic]:
         DiagnosticAction(
             kind="cli_hint",
             label="Check dispatcher status",
-            payload={"command": "hermes kanban diagnostics"},
+            payload={"command": "numbers kanban diagnostics"},
         ),
     ]
 

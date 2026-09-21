@@ -22,7 +22,7 @@ The active provider is chosen by configuration with this precedence:
    candidate order so installs that never set a config key keep landing
    on the same provider they did before the plugin migration.
 5. Otherwise ``None`` — the tool surfaces a helpful error pointing at
-   ``hermes tools``.
+   ``numbers tools``.
 
 The capability filter (``supports_search`` / ``supports_extract``) is
 applied at every step so a search-only provider (``brave-free``)
@@ -171,7 +171,7 @@ _LEGACY_PREFERENCE = (
 # web credentials and no importable ddgs). Ring vendors expose public
 # anonymous free tiers (see plugins/web/keyless_mcp.py). Unpinned keyless
 # traffic round-robins across the ring per request (the ring cursor lives
-# in keyless_mcp; an explicit `hermes tools` pick bypasses this walk
+# in keyless_mcp; an explicit `numbers tools` pick bypasses this walk
 # entirely, and rate-limited requests fail over to the next ring vendor).
 # Disable the tier with ``web.keyless_fallback: false``.
 _KEYLESS_PREFERENCE = (

@@ -7,7 +7,7 @@ Two additive capabilities, both designed so a failure inside them can never
 break an update (every public entry point is exception-swallowing):
 
 1. **Update receipt** — a machine-readable JSON record of what one
-   ``hermes update`` run discovered, did, skipped (and why), written to
+   ``numbers update`` run discovered, did, skipped (and why), written to
    ``<HERMES_HOME>/logs/update_receipts/``. Silent-failure classes this
    makes visible: #88848 (helper died after "success" printed), #74973
    (restart silently skipped), #85753 (restart phase never ran), #81193
@@ -43,7 +43,7 @@ logger = logging.getLogger(__name__)
 _RECEIPT_DIR_NAME = "update_receipts"
 _RECEIPT_KEEP = 20  # keep the last N receipts per profile home
 
-# Module-level current receipt. ``hermes update`` is a single-threaded CLI
+# Module-level current receipt. ``numbers update`` is a single-threaded CLI
 # command; a module singleton lets the 7k-line updater record steps from
 # any depth without threading a handle through every helper.
 _current: Optional["UpdateReceipt"] = None
@@ -54,7 +54,7 @@ def _utc_now_iso() -> str:
 
 
 class UpdateReceipt:
-    """Collects the observable facts of one ``hermes update`` run."""
+    """Collects the observable facts of one ``numbers update`` run."""
 
     def __init__(self) -> None:
         self.data: dict[str, Any] = {
@@ -132,7 +132,7 @@ class UpdateReceipt:
                 for entry in fresh_recovery.get("skipped", [])
                 if isinstance(entry, dict)
             ]
-            # Serve/dashboard coverage (#92145). ``hermes serve`` hosts
+            # Serve/dashboard coverage (#92145). ``numbers serve`` hosts
             # tui_gateway and is not a gateway profile, so neither the
             # per-profile buckets above nor the fleet-version matrix can
             # describe it. Persist its unit outcomes and any process that
@@ -258,7 +258,7 @@ def finalize_pending_update_receipt(
 ) -> Optional[Path]:
     """Command-boundary safety net: persist a still-open receipt, if any.
 
-    ``hermes update`` has many early-termination paths (Windows
+    ``numbers update`` has many early-termination paths (Windows
     concurrent-instance preflight, venv-holder refusal, head-pinned no-op,
     fetch failure — all ``sys.exit``) that predate the inner finalize
     call sites. Any receipt still open when the update COMMAND unwinds is
@@ -524,6 +524,6 @@ def print_fleet_version_matrix(fleet: list[dict[str, Any]]) -> bool:
             print("  ⚠ Stale gateways keep serving pre-update code until restarted:")
         if any_down:
             print("  ⚠ Down gateways stopped serving messaging entirely — restart them:")
-        print("      hermes gateway restart                # active profile")
+        print("      numbers gateway restart                # active profile")
         print("      hermes -p <profile> gateway restart   # named profile")
     return any_stale or any_down

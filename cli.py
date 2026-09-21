@@ -18,7 +18,7 @@ try:
     import hermes_bootstrap  # noqa: F401
 except ModuleNotFoundError:
     # Graceful fallback when hermes_bootstrap isn't registered in the venv
-    # yet — happens during partial ``hermes update`` where git-reset landed
+    # yet — happens during partial ``numbers update`` where git-reset landed
     # new code but ``uv pip install -e .`` didn't finish.  Missing bootstrap
     # means UTF-8 stdio setup is skipped on Windows; POSIX is unaffected.
     pass
@@ -136,7 +136,7 @@ def _reverse_alias_for_display(model_name: str) -> str:
     """Return the shortest configured alias for ``model_name``, or ``model_name``.
 
     Looks up both ``model_aliases:`` (dict-based, full DirectAlias entries)
-    and ``model.aliases:`` (string-based, set via ``hermes config set``)
+    and ``model.aliases:`` (string-based, set via ``numbers config set``)
     from config.yaml. Multiple aliases pointing at the same model — the
     shortest wins, so ``opus47`` beats ``palantir-claude47``.
     """
@@ -433,7 +433,7 @@ def load_cli_config() -> Dict[str, Any]:
     Environment variables take precedence over config file values.
     Returns default values if no config file exists.
 
-    If HERMES_IGNORE_USER_CONFIG=1 is set (via ``hermes chat --ignore-user-config``),
+    If HERMES_IGNORE_USER_CONFIG=1 is set (via ``numbers chat --ignore-user-config``),
     the user config at ``~/.hermes/config.yaml`` is skipped entirely and only the
     built-in defaults plus the project-level ``cli-config.yaml`` (if any) are used.
     Credentials in ``.env`` are still loaded — this flag only suppresses
@@ -631,7 +631,7 @@ def load_cli_config() -> Dict[str, Any]:
     # hermes_cli.config._load_config_impl (which has its own managed merge), so
     # without this the entire interactive CLI/TUI surface — skin, display prefs,
     # etc. read from CLI_CONFIG — would silently ignore managed scope while
-    # `hermes config`/`doctor`/guards (which use load_config) honor it. The
+    # `numbers config`/`doctor`/guards (which use load_config) honor it. The
     # shared helper mirrors _load_config_impl (env-only expansion, root-model
     # normalization, leaf-merge) and is fail-open.
     from hermes_cli import managed_scope
@@ -1696,7 +1696,7 @@ def _resolve_worktree_base(
     """Resolve the freshest base ref to branch a new worktree from.
 
     The standalone clone's ``HEAD`` can lag the remote by hundreds of commits
-    (the ``~/.hermes/hermes-agent`` clone is updated only by ``hermes update``,
+    (the ``~/.hermes/hermes-agent`` clone is updated only by ``numbers update``,
     not on every session). Branching a worktree from that stale ``HEAD`` roots
     every new branch on an old base — so the PR diff GitHub computes against
     current ``main`` balloons with unrelated changes, and the agent has to
@@ -2708,7 +2708,7 @@ def _run_checkpoint_auto_maintenance() -> None:
         # workdir at startup is ambiguous (deleted project vs. an unmounted
         # external volume / network share / VPN not yet up) and this sweep
         # runs unattended. Orphan cleanup is only ever done via the explicit
-        # `hermes checkpoints prune` command, which the user has to invoke.
+        # `numbers checkpoints prune` command, which the user has to invoke.
         maybe_auto_prune_checkpoints(
             retention_days=int(cfg.get("retention_days", 7)),
             min_interval_hours=int(cfg.get("min_interval_hours", 24)),
@@ -2802,7 +2802,7 @@ def _prune_stale_worktrees(repo_root: str, max_age_hours: int = 24) -> None:
     stale_work_cutoff = now - (7 * 24 * 3600)
     preserved_stale: list = []
     # Kanban task worktrees (<repo>/.worktrees/t_<hex>) have their own
-    # dispatcher-driven lifecycle (hermes kanban gc) — never touch them here.
+    # dispatcher-driven lifecycle (numbers kanban gc) — never touch them here.
     kanban_re = re.compile(r"^t_[0-9a-f]+$")
 
     # ── Phase 1: age filter (no subprocesses) ───────────────────────────────
@@ -2994,7 +2994,7 @@ def _prune_stale_worktrees(repo_root: str, max_age_hours: int = 24) -> None:
     if preserved_stale:
         logger.warning(
             "Preserving %d worktree(s) older than 7 days with unmerged work "
-            "(run `hermes worktree prune` to review and reclaim): %s",
+            "(run `numbers worktree prune` to review and reclaim): %s",
             len(preserved_stale), ", ".join(sorted(preserved_stale)),
         )
 
@@ -3012,8 +3012,8 @@ def _prune_stale_worktrees(repo_root: str, max_age_hours: int = 24) -> None:
         if count >= 10 or (size_mb or 0) >= 5120:
             size_txt = f"{size_mb / 1024:.1f}GB" if size_mb else "unknown size"
             logger.warning(
-                ".worktrees/ holds %d tree(s) (%s) — run `hermes worktree list` "
-                "to audit and `hermes worktree prune` to reclaim safely.",
+                ".worktrees/ holds %d tree(s) (%s) — run `numbers worktree list` "
+                "to audit and `numbers worktree prune` to reclaim safely.",
                 count, size_txt,
             )
     except Exception:
@@ -5085,7 +5085,7 @@ def save_config_value(key_path: str, value: any) -> bool:
             pass
 
         # Model/provider changes made through /model and the TUI use this
-        # persistence path rather than ``hermes config set``. Surface the same
+        # persistence path rather than ``numbers config set``. Surface the same
         # fail-closed cron drift warning for every operator-facing model switch.
         from hermes_cli.config import (
             warn_unpinned_cron_jobs_after_model_config_change,
@@ -5111,7 +5111,7 @@ def _normalize_moa_model(model: Optional[str]) -> tuple[Optional[str], Optional[
 
     Returns ``("moa", "<preset>")`` when *model* selects the MoA virtual
     provider, otherwise ``(None, model)`` unchanged. This gives non-interactive
-    ``hermes chat -Q -m moa:<preset>`` the same routing the interactive
+    ``numbers chat -Q -m moa:<preset>`` the same routing the interactive
     ``/moa`` command and the model picker already use: ``resolve_runtime_provider``
     handles ``requested_provider == "moa"`` and ``agent_init`` builds the
     MoAClient off ``provider == "moa"``. Without this the raw ``moa:<preset>``
@@ -5154,7 +5154,7 @@ class _SeededQueryMessage:
     """Sentinel wrapper for a ``-q/--query`` prompt seeded into an
     interactive session.
 
-    When ``hermes chat -q "…"`` runs on a real TTY, the query is submitted as
+    When ``numbers chat -q "…"`` runs on a real TTY, the query is submitted as
     the first turn of a normal interactive session instead of the legacy
     answer-and-exit single-query mode. The prompt is arbitrary user text (an
     OS launcher, a desktop integration, a script) — it must be treated
@@ -5552,7 +5552,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         self.checkpoint_max_file_size_mb = cp_cfg.get("max_file_size_mb", 10)
         self.pass_session_id = pass_session_id
         # --ignore-rules: honor either the constructor flag or the env var set
-        # by `hermes chat --ignore-rules` in hermes_cli/main.py. When true we
+        # by `numbers chat --ignore-rules` in hermes_cli/main.py. When true we
         # pass skip_context_files=True and skip_memory=True to AIAgent so
         # AGENTS.md/SOUL.md/.cursorrules and persistent memory are not loaded.
         self.ignore_rules = ignore_rules or os.environ.get("HERMES_IGNORE_RULES") == "1"
@@ -5671,7 +5671,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                     "this conversation will [bold]NOT be saved[/bold] to disk and "
                     "cannot be resumed later. Searching past sessions is also disabled.\n"
                     f"  Reason: {e}\n"
-                    "  Fix the state.db store (e.g. `hermes update` to rebuild the venv) to restore persistence."
+                    "  Fix the state.db store (e.g. `numbers update` to rebuild the venv) to restore persistence."
                 )
             except Exception:
                 # Never let the warning path itself break startup.
@@ -7142,7 +7142,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
     def _pet_resolve_config(self) -> None:
         """(Re)resolve the active pet from config — picks up live enable/disable/
 
-        switch made via ``/pet`` or ``hermes pets`` without a restart, mirroring
+        switch made via ``/pet`` or ``numbers pets`` without a restart, mirroring
         the TUI's steady poll. Cheap and fail-open: any problem disables the pet.
         """
         try:
@@ -8902,9 +8902,9 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         """Show a startup banner if any unacked security advisories match.
 
         Renders a single bold-red box on stderr (so piped stdout remains
-        clean) listing the worst hit and pointing at ``hermes doctor``.
+        clean) listing the worst hit and pointing at ``numbers doctor``.
         Banner-cache rate-limits this to once per 24h per advisory; full
-        remediation lives behind ``hermes doctor`` so the banner stays
+        remediation lives behind ``numbers doctor`` so the banner stays
         small.
         """
         try:
@@ -8977,7 +8977,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                 logger.warning(
                     "Unknown skill(s) requested, skipping: %s. "
                     "Continuing with: %s. "
-                    "List available skills with `hermes skills list`.",
+                    "List available skills with `numbers skills list`.",
                     missing_display,
                     ", ".join(loaded_skills),
                 )
@@ -9167,7 +9167,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             )
 
         # Project-local skills: one-line status. Trusted → show count;
-        # untrusted-with-skills → point at `hermes skills trust`. Never raises.
+        # untrusted-with-skills → point at `numbers skills trust`. Never raises.
         try:
             from agent.skill_utils import (
                 get_project_skills_dirs,
@@ -9725,7 +9725,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                     if len(item["tools"]) > 2:
                         tools_str += f", +{len(item['tools'])-2} more"
                     self._console_print(f"   [dim]• {item['name']}[/] [dim italic]({', '.join(item['missing_vars'])})[/]")
-                self._console_print("[dim]   Run 'hermes setup' to configure[/]")
+                self._console_print("[dim]   Run 'numbers setup' to configure[/]")
         except Exception:
             pass  # Don't crash on import errors
     
@@ -10356,7 +10356,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
 
         Starting the CLI and immediately quitting (or rotating with /new,
         /clear) used to leave an empty untitled row behind that clutters
-        ``/resume`` and ``hermes sessions list``. Delegates the
+        ``/resume`` and ``numbers sessions list``. Delegates the
         check-and-delete to ``SessionDB.delete_session_if_empty``, which
         only removes rows with no messages, no title, and no child
         sessions. Ported from google-gemini/gemini-cli#27770.
@@ -10462,7 +10462,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             except Exception:
                 pass
             # Don't let immediately-rotated empty sessions pile up in
-            # /resume and `hermes sessions list` (gemini-cli#27770 port).
+            # /resume and `numbers sessions list` (gemini-cli#27770 port).
             self._discard_session_if_empty(old_session_id)
 
         self.session_start = datetime.now()
@@ -11939,7 +11939,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                 return
             provider_data = providers[selected]
             # Use the curated model list from list_authenticated_providers()
-            # (same lists as `hermes model` and gateway pickers).
+            # (same lists as `numbers model` and gateway pickers).
             # Only fall back to the live provider catalog when the curated
             # list is empty (e.g. user-defined endpoints with no curated list).
             model_list = provider_data.get("models", [])
@@ -12956,7 +12956,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             self._handle_browser_command(cmd_original)
         elif canonical == "plugins":
             try:
-                # Discover from disk (bundled + user), matching `hermes plugins
+                # Discover from disk (bundled + user), matching `numbers plugins
                 # list` — so installed-but-not-enabled plugins are visible here
                 # too. The plugin manager only knows about *loaded* plugins, so
                 # using it alone made freshly-installed, not-yet-enabled plugins
@@ -12975,16 +12975,16 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                 # `/plugins` is a quick glance — default to user-installed
                 # plugins (what the user actually added). Bundled provider/
                 # platform plugins are summarized on one line; the full
-                # catalog lives behind `hermes plugins list`.
+                # catalog lives behind `numbers plugins list`.
                 user_entries = [e for e in entries if e[3] != "bundled"]
                 bundled_count = len(entries) - len(user_entries)
 
                 if not user_entries:
                     print("No user plugins installed.")
-                    print("  Install one: hermes plugins install owner/repo")
+                    print("  Install one: numbers plugins install owner/repo")
                     print(f"  Or drop a plugin directory into {display_hermes_home()}/plugins/")
                     if bundled_count:
-                        print(f"  ({bundled_count} bundled plugins available — see: hermes plugins list)")
+                        print(f"  ({bundled_count} bundled plugins available — see: numbers plugins list)")
                 else:
                     # Loaded-plugin details (tools/hooks/commands counts, errors)
                     # keyed by name, when available.
@@ -13014,8 +13014,8 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                         error = f" — {info['error']}" if info.get("error") else ""
                         print(f"  {glyph} {name}{ver}{label}{detail}{error}")
                     if bundled_count:
-                        print(f"  (+{bundled_count} bundled — see: hermes plugins list)")
-                    print("  Enable/disable: hermes plugins enable/disable <name>")
+                        print(f"  (+{bundled_count} bundled — see: numbers plugins list)")
+                    print("  Enable/disable: numbers plugins enable/disable <name>")
             except Exception as e:
                 print(f"Plugin system error: {e}")
         elif canonical == "rollback":
@@ -14268,7 +14268,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         normalized = str(provider or "").strip().lower()
         if normalized != "openai-codex":
             print("  Banked usage resets are only available on the openai-codex provider.")
-            print("  Switch with `/model` or `hermes auth` first.")
+            print("  Switch with `/model` or `numbers auth` first.")
             return
         base_url = (getattr(self.agent, "base_url", None) if self.agent else None) or getattr(self, "base_url", None)
         api_key = (getattr(self.agent, "api_key", None) if self.agent else None) or getattr(self, "api_key", None)
@@ -21503,7 +21503,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             print(
                 "Error: stdin (fd 0) is not available.\n"
                 "This can happen with certain Python installations (e.g. uv-managed cPython on macOS).\n"
-                "Try reinstalling Python via pyenv or Homebrew, then re-run: hermes setup"
+                "Try reinstalling Python via pyenv or Homebrew, then re-run: numbers setup"
             )
             _run_cleanup()
             self._print_exit_summary()
@@ -21577,7 +21577,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                     f"\nError: stdin is not usable ({_stdin_err}).\n"
                     "This can happen with certain Python installations (e.g. uv-managed cPython on macOS)\n"
                     "where kqueue cannot register fd 0.\n"
-                    "Try reinstalling Python via pyenv or Homebrew, then re-run: hermes setup"
+                    "Try reinstalling Python via pyenv or Homebrew, then re-run: numbers setup"
                 )
             else:
                 raise
@@ -21632,7 +21632,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                 except (Exception, KeyboardInterrupt) as e:
                     logger.debug("Could not close session in DB: %s", e)
                 # Started-and-immediately-quit sessions never gained content;
-                # drop the empty row so /resume and `hermes sessions list`
+                # drop the empty row so /resume and `numbers sessions list`
                 # stay clean (gemini-cli#27770 port). No-op for resumed or
                 # titled sessions and anything with messages or children.
                 if not getattr(self, '_delete_session_on_exit', False):
@@ -22204,7 +22204,7 @@ def main(
             sys.exit(1)
         try:
             query, single_query_images = _collect_query_images(query, image)
-            # Kanban workers spawn with ``hermes chat -q "work kanban task <id>"``;
+            # Kanban workers spawn with ``numbers chat -q "work kanban task <id>"``;
             # the actual task description lives in the task body. Mirror the
             # gateway/CLI behaviour for inbound images by scanning the body for
             # local image paths and http(s) image URLs and attaching them to the
@@ -22414,7 +22414,7 @@ def main(
                 # Exit with error code if credentials or agent init fails
                 sys.exit(1)
             else:
-                # Single-query mode (`hermes chat -q "…"`): skip the welcome
+                # Single-query mode (`numbers chat -q "…"`): skip the welcome
                 # banner. Building the banner takes ~420 ms on cold start —
                 # ~200 ms of that is the version-update check, the rest is
                 # toolset / skill enumeration and Rich panel rendering. None

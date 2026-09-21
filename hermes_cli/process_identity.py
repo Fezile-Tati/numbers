@@ -2,7 +2,7 @@
 Windows job-object self-attach.
 
 Three layers that make every long-lived Hermes process positively
-identifiable, so reapers (``hermes update``, Desktop startup sweeps) never
+identifiable, so reapers (``numbers update``, Desktop startup sweeps) never
 have to guess lineage from PPID archaeology or cmdline pattern-matching:
 
 1. **Spawn tag** (``HERMES_SPAWN`` env var): every spawner stamps its children
@@ -290,7 +290,7 @@ def register_self(
     try:
         import sys as _sys
 
-        # 10 tokens (was 6): enough for `hermes serve --host X --port N
+        # 10 tokens (was 6): enough for `numbers serve --host X --port N
         # --profile P` — the relaunch shapes #63206 needs — while still
         # bounding pathological argv. Structured detail above is the
         # canonical identity; argv is the human-readable fallback.

@@ -1,7 +1,7 @@
 """Image-managed install refusal contract (#91277 Phase 3).
 
 One shared admission gate for every surface that can start an in-place
-``hermes update`` mutation (CLI apply, CLI --check, dashboard update
+``numbers update`` mutation (CLI apply, CLI --check, dashboard update
 endpoint). The decision layers:
 
 1. **Baked provenance marker** (``/etc/hermes/image-provenance.json``,

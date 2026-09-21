@@ -1,6 +1,6 @@
 """Kanban board export / import — move a whole board between machines.
 
-Backs ``hermes kanban export|import``, the matching ``/boards/{slug}/export``
+Backs ``numbers kanban export|import``, the matching ``/boards/{slug}/export``
 and ``/boards/import`` REST endpoints, and the desktop board switcher's
 Export/Import items.
 

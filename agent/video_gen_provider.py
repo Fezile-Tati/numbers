@@ -89,7 +89,7 @@ class VideoGenProvider(abc.ABC):
 
     @property
     def display_name(self) -> str:
-        """Human-readable label shown in ``hermes tools``. Defaults to ``name.title()``."""
+        """Human-readable label shown in ``numbers tools``. Defaults to ``name.title()``."""
         return self.name.title()
 
     def is_available(self) -> bool:
@@ -101,7 +101,7 @@ class VideoGenProvider(abc.ABC):
         return True
 
     def list_models(self) -> List[Dict[str, Any]]:
-        """Return catalog entries for ``hermes tools`` model picker.
+        """Return catalog entries for ``numbers tools`` model picker.
 
         Each entry represents a **model family** that supports text-to-video
         and/or image-to-video routing internally::
@@ -120,7 +120,7 @@ class VideoGenProvider(abc.ABC):
         return []
 
     def get_setup_schema(self) -> Dict[str, Any]:
-        """Return provider metadata for the ``hermes tools`` picker."""
+        """Return provider metadata for the ``numbers tools`` picker."""
         return {
             "name": self.display_name,
             "badge": "",
@@ -155,7 +155,7 @@ class VideoGenProvider(abc.ABC):
 
         Used by the tool layer for soft validation, for capability-gated
         param rendering in the dynamic ``video_generate`` schema (args a
-        backend can't honor are not advertised), and by ``hermes tools``
+        backend can't honor are not advertised), and by ``numbers tools``
         for the picker. Default fails closed: text-only, no optional
         features — a provider that doesn't declare a capability doesn't
         advertise it.

@@ -526,7 +526,7 @@ class InsightsEngine:
             # dimension in session_model_usage, #23270) plus reconciled
             # residuals, while the sessions counters carry main-loop usage
             # only. Summing the breakdown keeps overview totals consistent
-            # with the per-model table and stops `hermes insights`
+            # with the per-model table and stops `numbers insights`
             # undercounting aux spend (#58592, #9979).
             total_input = sum(int(m.get("input_tokens") or 0) for m in models)
             total_output = sum(int(m.get("output_tokens") or 0) for m in models)

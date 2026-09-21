@@ -1,6 +1,6 @@
 """Safe Hermes Console command engine.
 
-This module backs ``hermes console`` and is intentionally narrower than the
+This module backs ``numbers console`` and is intentionally narrower than the
 full Hermes CLI. It exposes a curated set of native adapters that can later be
 shared by the dashboard console websocket without becoming a raw shell.
 """
@@ -105,8 +105,8 @@ def _strip_console_status_footer(text: str) -> str:
     last = _strip_ansi(lines[-1]).strip()
     prev = _strip_ansi(lines[-2]).strip()
     if not (
-        prev.startswith("Run 'hermes doctor'")
-        and last.startswith("Run 'hermes setup'")
+        prev.startswith("Run 'numbers doctor'")
+        and last.startswith("Run 'numbers setup'")
     ):
         return text.rstrip()
 
@@ -1602,7 +1602,7 @@ def _cron_pause(_engine: HermesConsoleEngine, args: list[str]) -> str:
     from cron.jobs import AmbiguousJobReference, pause_job
 
     try:
-        job = pause_job(args[0], reason="paused from hermes console")
+        job = pause_job(args[0], reason="paused from numbers console")
     except AmbiguousJobReference as exc:
         raise ConsoleCommandError(str(exc)) from exc
     if not job:
@@ -1655,7 +1655,7 @@ def run_console_repl(
     stderr=None,
     interactive: bool | None = None,
 ) -> int:
-    """Run the local ``hermes console`` REPL."""
+    """Run the local ``numbers console`` REPL."""
 
     stdin = stdin or sys.stdin
     stdout = stdout or sys.stdout

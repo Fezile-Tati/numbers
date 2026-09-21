@@ -13,7 +13,7 @@ Design goals:
 - **Loud when it matters, silent otherwise.** If no compromised package is
   installed, the user sees nothing.
 - **Acknowledgeable.** Once the user has read and acted on an advisory they
-  can dismiss it via ``hermes doctor --ack <id>``; the ack is persisted to
+  can dismiss it via ``numbers doctor --ack <id>``; the ack is persisted to
   ``config.security.acked_advisories`` and survives restart.
 - **Extensible.** Adding a new advisory is one entry in ``ADVISORIES``;
   adding a new compromised version is a one-line edit. No code changes
@@ -21,9 +21,9 @@ Design goals:
 
 The check is invoked from three places:
 
-1. ``hermes doctor`` (and ``hermes doctor --ack <id>``)
+1. ``numbers doctor`` (and ``numbers doctor --ack <id>``)
 2. CLI startup banner (one short line, then full guidance via
-   ``hermes doctor``)
+   ``numbers doctor``)
 3. Gateway startup (logged to gateway.log; first interactive message gets
    a one-line operator banner)
 
@@ -120,7 +120,7 @@ ADVISORIES: tuple[Advisory, ...] = (
             "and any other credential files for tokens that may have been read.",
             "Check GitHub for unexpected new SSH keys, deploy keys, or webhook "
             "additions on repos you have admin on.",
-            "After cleanup: hermes doctor --ack shai-hulud-2026-05  to dismiss "
+            "After cleanup: numbers doctor --ack shai-hulud-2026-05  to dismiss "
             "this warning.",
         ),
         published="2026-05-12",
@@ -281,7 +281,7 @@ def short_banner_lines(hits: list[AdvisoryHit]) -> list[str]:
     lines = [
         f"SECURITY ADVISORY [{primary.advisory.id}]: {primary.advisory.title}",
         f"  Detected: {primary.package}=={primary.installed_version}",
-        "  Run 'hermes doctor' for remediation steps.",
+        "  Run 'numbers doctor' for remediation steps.",
     ]
     if len(hits) > 1:
         lines.insert(1, f"  ({len(hits) - 1} additional advisor"
@@ -404,7 +404,7 @@ def hits_due_for_banner(
 
 
 def render_doctor_section(hits: list[AdvisoryHit]) -> tuple[bool, list[str]]:
-    """Render the security-advisory section for ``hermes doctor``.
+    """Render the security-advisory section for ``numbers doctor``.
 
     Returns ``(has_problems, lines)``. Caller is responsible for printing
     with whatever color scheme it uses.
@@ -450,4 +450,4 @@ def gateway_log_message(hits: list[AdvisoryHit]) -> Optional[str]:
                 f"See {h.advisory.url}")
     return (f"{len(fresh)} security advisories active "
             f"(IDs: {', '.join(h.advisory.id for h in fresh)}). "
-            f"Run `hermes doctor` on the gateway host for details.")
+            f"Run `numbers doctor` on the gateway host for details.")

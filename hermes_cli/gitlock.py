@@ -5,7 +5,7 @@ A crashed or killed ``git fetch`` on a shallow clone can leave
 
     fatal: Unable to create '/path/.git/shallow.lock': File exists.
 
-This wedges ``hermes update --check`` (hard failure) and silently degrades the
+This wedges ``numbers update --check`` (hard failure) and silently degrades the
 passive banner check in :mod:`hermes_cli.banner` (the fetch is swallowed, the
 stale refs are compared, and the user can be told an update is available when
 the checkout already contains the remote tip). Git does not self-heal these

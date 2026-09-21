@@ -31,7 +31,7 @@ _DEFAULT_PLATFORM_TOOLSETS = {
 
 # Maps a tools_config provider's ``managed_nous_feature`` to the tool-pool
 # coverage category (hermes_cli.nous_account.TOOL_COVERAGE_CATEGORIES). Lets the
-# `hermes tools` picker scope its entitlement gate to the selected backend, so a
+# `numbers tools` picker scope its entitlement gate to the selected backend, so a
 # free-tool-pool user is allowed image gen but denied video gen at select time —
 # consistent with the per-category feature gates in get_nous_subscription_features.
 MANAGED_FEATURE_COVERAGE_CATEGORY: Dict[str, str] = {
@@ -61,7 +61,7 @@ def _selected_provider(section: object, name_key: str = "provider") -> Optional[
     an in-memory section dict: ``"nous"`` for the managed selection (stored
     ``nous`` value or legacy ``use_gateway: true``), a vendor name for BYOK
     picks, or ``None`` when no selection is stored. Keeping this in lockstep
-    with the runtime resolver is what stops ``hermes status`` from lying.
+    with the runtime resolver is what stops ``numbers status`` from lying.
     """
     if not isinstance(section, dict):
         return None
@@ -506,7 +506,7 @@ def get_nous_subscription_features(
     direct_firecrawl = bool(get_env_value("FIRECRAWL_API_KEY") or get_env_value("FIRECRAWL_API_URL"))
     direct_parallel = bool(get_env_value("PARALLEL_API_KEY"))
     direct_tavily = bool(get_env_value("TAVILY_API_KEY"))
-    # Keyless Tavily is opt-in: selecting it in `hermes tools` / setup writes
+    # Keyless Tavily is opt-in: selecting it in `numbers tools` / setup writes
     # web.backend (or a per-capability override) without requiring a key.
     tavily_selected = "tavily" in {web_backend, web_search_backend, web_extract_backend}
     direct_searxng = bool(get_env_value("SEARXNG_URL"))
@@ -1328,7 +1328,7 @@ def prompt_enable_tool_gateway(
 
 
 # ---------------------------------------------------------------------------
-# Inline Nous Portal login for the Tool Gateway picker (`hermes tools`)
+# Inline Nous Portal login for the Tool Gateway picker (`numbers tools`)
 # ---------------------------------------------------------------------------
 
 
@@ -1340,8 +1340,8 @@ def ensure_nous_portal_access(
     """Make sure the user is entitled to the Nous Tool Gateway, logging in if
     needed.
 
-    Used by ``hermes tools`` when a user selects a Nous-managed Tool Gateway
-    backend (e.g. "Firecrawl (Nous Portal)").  Unlike ``hermes model``'s Nous
+    Used by ``numbers tools`` when a user selects a Nous-managed Tool Gateway
+    backend (e.g. "Firecrawl (Nous Portal)").  Unlike ``numbers model``'s Nous
     login, this:
 
     - does NOT change the inference provider (``model.provider`` is untouched),

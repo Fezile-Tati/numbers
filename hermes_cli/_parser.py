@@ -90,7 +90,7 @@ def _inherited_flag(parser, *args, **kwargs):
 _EPILOGUE = """
 Examples:
     hermes                        Start interactive chat
-    hermes chat -q "Hello"        Single query mode
+    numbers chat -q "Hello"        Single query mode
     hermes --tui                  Launch the modern TUI (or set display.interface: tui)
     hermes --cli                  Force the classic REPL (overrides display.interface: tui)
     hermes -c                     Resume the most recent session
@@ -98,36 +98,36 @@ Examples:
     hermes --resume <session_id>  Resume a specific session by ID
     hermes --resume latest        Resume the most recent session (same as -c)
     hermes --tui --resume latest --in ./dir   Resume ./dir's latest session in the TUI
-    hermes setup                  Run setup wizard
-    hermes logout                 Clear stored authentication
-    hermes auth add <provider>    Add a pooled credential
-    hermes auth list              List pooled credentials
-    hermes auth remove <p> <t>    Remove pooled credential by index, id, or label
-    hermes auth reset <provider>  Clear exhaustion status for a provider
-    hermes model                  Select default model
-    hermes fallback [list]        Show fallback provider chain
-    hermes fallback add           Add a fallback provider (same picker as `hermes model`)
-    hermes fallback remove        Remove a fallback provider from the chain
-    hermes config                 View configuration
-    hermes config edit            Edit config in $EDITOR
-    hermes config set model gpt-4 Set a config value
-    hermes gateway                Run messaging gateway
+    numbers setup                  Run setup wizard
+    numbers logout                 Clear stored authentication
+    numbers auth add <provider>    Add a pooled credential
+    numbers auth list              List pooled credentials
+    numbers auth remove <p> <t>    Remove pooled credential by index, id, or label
+    numbers auth reset <provider>  Clear exhaustion status for a provider
+    numbers model                  Select default model
+    numbers fallback [list]        Show fallback provider chain
+    numbers fallback add           Add a fallback provider (same picker as `numbers model`)
+    numbers fallback remove        Remove a fallback provider from the chain
+    numbers config                 View configuration
+    numbers config edit            Edit config in $EDITOR
+    numbers config set model gpt-4 Set a config value
+    numbers gateway                Run messaging gateway
     hermes -s hermes-agent-dev,github-auth
     hermes -w                     Start in isolated git worktree
-    hermes gateway install        Install gateway background service
-    hermes sessions list          List past sessions
-    hermes sessions browse        Interactive session picker
-    hermes sessions rename ID T   Rename/title a session
-    hermes logs                   View agent.log (last 50 lines)
-    hermes logs -f                Follow agent.log in real time
-    hermes logs errors            View errors.log
-    hermes logs --since 1h        Lines from the last hour
-    hermes debug share             Upload debug report for support
-    hermes console                Open the safe Hermes command console
-    hermes update                 Update to latest version
-    hermes dashboard              Start web UI dashboard (port 9119)
-    hermes dashboard --stop       Stop running dashboard processes
-    hermes dashboard --status     List running dashboard processes
+    numbers gateway install        Install gateway background service
+    numbers sessions list          List past sessions
+    numbers sessions browse        Interactive session picker
+    numbers sessions rename ID T   Rename/title a session
+    numbers logs                   View agent.log (last 50 lines)
+    numbers logs -f                Follow agent.log in real time
+    numbers logs errors            View errors.log
+    numbers logs --since 1h        Lines from the last hour
+    numbers debug share             Upload debug report for support
+    numbers console                Open the safe Hermes command console
+    numbers update                 Update to latest version
+    numbers dashboard              Start web UI dashboard (port 9119)
+    numbers dashboard --stop       Stop running dashboard processes
+    numbers dashboard --status     List running dashboard processes
 
 For more help on a command:
     hermes <command> --help
@@ -195,7 +195,7 @@ def _cli_dashboard_port() -> int:
     Ports are machine-wide, so two installs sharing a default collide: the
     second one's ``dashboard`` finds something listening and ATTACHES to it
     (``_dashboard_listening`` is a bare TCP-connect probe -- it proves *a*
-    dashboard is up, never *whose*), which is how a stock `hermes dashboard`
+    dashboard is up, never *whose*), which is how a stock `numbers dashboard`
     ended up opening the branded UI. A branded skin moves its own default; the
     fallback is upstream's literal, so a stock install is unchanged.
     """
@@ -257,7 +257,7 @@ def build_top_level_parser():
     # --model / --provider are accepted at the top level so they can pair
     # with -z without needing the `chat` subcommand.  If neither -z nor a
     # subcommand consumes them, they fall through harmlessly as None.
-    # Mirrors `hermes chat --model ... --provider ...` semantics.
+    # Mirrors `numbers chat --model ... --provider ...` semantics.
     _inherited_flag(
         parser,
         "-m",
@@ -275,7 +275,7 @@ def build_top_level_parser():
         help=(
             "Provider override for this invocation (e.g. openrouter, anthropic). "
             "Applies to -z/--oneshot and --tui. The persistent provider lives in config.yaml "
-            "under model.provider — use `hermes setup` or edit the file to change it."
+            "under model.provider — use `numbers setup` or edit the file to change it."
         ),
     )
     _inherited_flag(

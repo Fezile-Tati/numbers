@@ -411,7 +411,7 @@ def ensure_tcc_anchor(project_root: Path | None = None) -> Path | None:
 
 
 def tcc_anchor_state(project_root: Path | None = None) -> tuple[str, str]:
-    """Report the anchor state for ``hermes doctor``.
+    """Report the anchor state for ``numbers doctor``.
 
     Returns ``(status, detail)`` with status one of:
 

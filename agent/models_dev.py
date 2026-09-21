@@ -609,7 +609,7 @@ def fetch_models_dev(
       5. Any failed refresh (foreground or background) suppresses further
          automatic refreshes for 5 minutes process-wide.
 
-    When ``force_refresh=True`` (used by ``hermes config refresh``, the
+    When ``force_refresh=True`` (used by ``numbers config refresh``, the
     \"refresh model catalog\" code path), cache fast paths and the failure
     backoff are bypassed; the function hits the network and only falls back
     to cached data if the call fails. When ``allow_network=False``, any
@@ -1279,7 +1279,7 @@ def list_provider_models(
     Returns an empty list if the provider is unknown or has no data.
 
     ``allow_network`` defaults to True — this is called from the model
-    picker (``hermes model``), which is an interactive user-facing flow
+    picker (``numbers model``), which is an interactive user-facing flow
     where a fresh catalog is worth a short network wait.
     """
     from hermes_cli.models import normalize_provider

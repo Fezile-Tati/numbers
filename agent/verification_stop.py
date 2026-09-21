@@ -188,7 +188,7 @@ def _format_changed_paths(paths: list[str]) -> str:
 
 
 def _workspace_has_runnable_recipe(root: Any) -> bool:
-    """Whether the workspace has a runtime verify recipe ``hermes verify`` can run.
+    """Whether the workspace has a runtime verify recipe ``numbers verify`` can run.
 
     True when a saved ``.hermes/environment.json`` manifest exists, or when
     cheap static detection (:func:`agent.verify.recipes.detect_recipe`) finds a
@@ -279,7 +279,7 @@ def build_verify_on_stop_nudge(
         if _workspace_has_runnable_recipe(facts.get("root")):
             command_instruction += (
                 " For a full check including a runtime boot (build + test + "
-                "start + readiness), prefer `hermes verify --json` — a passing "
+                "start + readiness), prefer `numbers verify --json` — a passing "
                 "run records verification evidence for this workspace."
             )
     else:
@@ -287,7 +287,7 @@ def build_verify_on_stop_nudge(
         if _workspace_has_runnable_recipe(facts.get("root")):
             command_instruction = (
                 "No canonical test/lint/build command was detected, but the "
-                "project has a runnable verification recipe. Run `hermes verify "
+                "project has a runnable verification recipe. Run `numbers verify "
                 "--json` (detect -> build -> test -> boot -> readiness poll); a "
                 "passing run records verification evidence for this workspace. "
                 "Read any failure, repair the code, and summarize what passed."

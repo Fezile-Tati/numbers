@@ -24,7 +24,7 @@ from utils import base_url_host_matches
 def _single_query_clarify_callback(question: str, choices=None, multi_select=False) -> str:
     """Clarify has no interactive surface in a single-query (-q) turn.
 
-    ``hermes chat -q`` runs one turn without ever building the
+    ``numbers chat -q`` runs one turn without ever building the
     prompt_toolkit application, so the interactive clarify modal can never
     be painted or answered — the CLI callback would poll its response queue
     until ``agent.clarify_timeout`` expires (default 3600 s, 0 = unlimited)
@@ -150,12 +150,12 @@ class CLIAgentSetupMixin:
                     print(f"\n⚠️  No API key found for provider '{_prov}'.")
                 else:
                     print("\n⚠️  No inference provider is configured.")
-                print("   Run 'hermes model' to choose a provider, or "
-                      "'hermes setup' for first-time setup.")
+                print("   Run 'numbers model' to choose a provider, or "
+                      "'numbers setup' for first-time setup.")
                 return False
         if not isinstance(base_url, str) or not base_url:
             print("\n⚠️  Provider resolver returned an empty base URL. "
-                  "Check your provider config or run: hermes setup")
+                  "Check your provider config or run: numbers setup")
             return False
 
         credentials_changed = api_key != self.api_key or base_url != self.base_url
@@ -176,7 +176,7 @@ class CLIAgentSetupMixin:
 
         # When a custom_provider entry carries an explicit `model` field,
         # use it as the effective model name.  Without this, running
-        # `hermes chat --model <provider-name>` sends the provider name
+        # `numbers chat --model <provider-name>` sends the provider name
         # (e.g. "my-provider") as the model string to the API instead of
         # the configured model (e.g. "qwen3.6-plus"), causing 400 errors.
         runtime_model = runtime.get("model")
@@ -190,8 +190,8 @@ class CLIAgentSetupMixin:
             if should_use_runtime_model:
                 self.model = runtime_model
 
-        # If model is still empty (e.g. user ran `hermes auth add openai-codex`
-        # without `hermes model`), fall back to the provider's first catalog
+        # If model is still empty (e.g. user ran `numbers auth add openai-codex`
+        # without `numbers model`), fall back to the provider's first catalog
         # model so the API call doesn't fail with "model must be non-empty".
         if not self.model and resolved_provider:
             try:
@@ -257,7 +257,7 @@ class CLIAgentSetupMixin:
 
         Called from the interactive startup path when
         ``_runtime_credentials_ready()`` is False and stdin is a TTY. Runs the
-        exact same flow as ``hermes model`` (which fronts Quick Setup / Nous
+        exact same flow as ``numbers model`` (which fronts Quick Setup / Nous
         Portal OAuth as the first, recommended option) so there is a single
         source of truth for provider onboarding. Returns True when a provider
         was configured.
@@ -274,7 +274,7 @@ class CLIAgentSetupMixin:
             print()
             answer = "n"
         if answer in {"n", "no"}:
-            _cprint("  Skipped. Run 'hermes model' or 'hermes setup' any time.")
+            _cprint("  Skipped. Run 'numbers model' or 'numbers setup' any time.")
             return False
 
         try:
@@ -282,12 +282,12 @@ class CLIAgentSetupMixin:
             select_provider_and_model()
         except (KeyboardInterrupt, EOFError, SystemExit):
             print()
-            _cprint("  Setup cancelled. Run 'hermes model' any time.")
+            _cprint("  Setup cancelled. Run 'numbers model' any time.")
             return False
         except Exception as exc:
             logger.debug("first-run provider setup failed: %s", exc)
             _cprint(f"  ⚠️  Provider setup failed: {exc}")
-            _cprint("  Run 'hermes model' to try again.")
+            _cprint("  Run 'numbers model' to try again.")
             return False
 
         # Re-sync CLI state from what the picker persisted so the very next
@@ -313,7 +313,7 @@ class CLIAgentSetupMixin:
         if self._runtime_credentials_ready():
             _cprint("  ✓ Provider configured — you're ready to chat.")
             return True
-        _cprint("  Provider setup didn't complete. Run 'hermes model' to retry.")
+        _cprint("  Provider setup didn't complete. Run 'numbers model' to retry.")
         return False
 
     def _resolve_turn_agent_config(self, user_message: str) -> dict:
@@ -415,22 +415,22 @@ class CLIAgentSetupMixin:
         # is non-empty and we skip the DB round-trip.
         if self._resumed and self._session_db and not self.conversation_history:
             session_meta = self._session_db.get_session(self.session_id)
-            # In quiet mode (`hermes chat -Q` / --quiet, surfaced via
+            # In quiet mode (`numbers chat -Q` / --quiet, surfaced via
             # tool_progress_mode == "off"), resume status lines go to stderr
             # so stdout stays machine-readable for automation wrappers that
-            # do `$(hermes chat -Q --resume <id> -q "...")`. Without this,
+            # do `$(numbers chat -Q --resume <id> -q "...")`. Without this,
             # the resume banner pollutes captured stdout. See #11793.
             _quiet_mode = getattr(self, "tool_progress_mode", "full") == "off"
             if not session_meta:
                 if _quiet_mode:
                     print(f"Session not found: {self.session_id}", file=sys.stderr)
                     print(
-                        "Use a session ID from a previous CLI run (hermes sessions list).",
+                        "Use a session ID from a previous CLI run (numbers sessions list).",
                         file=sys.stderr,
                     )
                 else:
                     _cprint(f"\033[1;31mSession not found: {self.session_id}{_RST}")
-                    _cprint(f"{_DIM}Use a session ID from a previous CLI run (hermes sessions list).{_RST}")
+                    _cprint(f"{_DIM}Use a session ID from a previous CLI run (numbers sessions list).{_RST}")
                 return False
             # If the requested session is the (empty) head of a compression
             # chain, walk to the descendant that actually holds the messages.
@@ -695,7 +695,7 @@ class CLIAgentSetupMixin:
             )
             self._console_print(
                 "[dim]Use a session ID from a previous CLI run "
-                "(hermes sessions list).[/]"
+                "(numbers sessions list).[/]"
             )
             return False
 

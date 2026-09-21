@@ -758,7 +758,7 @@ def finalize_turn(
     if failed and str(_turn_exit_reason) == "session_persistence_failed":
         result["error"] = final_response or (
             "session storage could not be written — check the state database "
-            "health (`hermes doctor`), then send your message again"
+            "health (`numbers doctor`), then send your message again"
         )
         # Machine-readable cause for the gateway/desktop: exactly
         # 'session_persistence_failed:<locked|compression|turn_lease|corrupt|replaced|disk|unknown>'.

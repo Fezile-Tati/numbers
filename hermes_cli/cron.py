@@ -128,9 +128,9 @@ def _warn_if_gateway_not_running() -> None:
         return
 
     print(color("  ⚠  Gateway is not running — jobs won't fire automatically.", Colors.YELLOW))
-    print(color("     Start it with: hermes gateway install", Colors.DIM))
-    print(color("                    sudo hermes gateway install --system  # Linux servers", Colors.DIM))
-    print(color("     Check status:  hermes cron status", Colors.DIM))
+    print(color("     Start it with: numbers gateway install", Colors.DIM))
+    print(color("                    sudo numbers gateway install --system  # Linux servers", Colors.DIM))
+    print(color("     Check status:  numbers cron status", Colors.DIM))
 
 
 def _format_lateness(seconds: float) -> str:
@@ -188,7 +188,7 @@ def cron_list(show_all: bool = False):
 
     if not jobs:
         print(color("No scheduled jobs.", Colors.DIM))
-        print(color("Create one with 'hermes cron create ...' or the /cron command in chat.", Colors.DIM))
+        print(color("Create one with 'numbers cron create ...' or the /cron command in chat.", Colors.DIM))
         return
 
     print()
@@ -336,7 +336,7 @@ def cron_tick():
         # (#87644). For the one-shot CLI surface, report cleanly instead of
         # dumping a traceback; the gateway ticker loop handles its own retry.
         print(color(f"✗ Cron tick failed: {exc}", Colors.RED))
-        print("  Check `hermes cron status` and the gateway log for details.")
+        print("  Check `numbers cron status` and the gateway log for details.")
         return 1
     return 0
 
@@ -369,9 +369,9 @@ _INCIDENT_STATE_COLORS = {
 def cron_incidents(args) -> int:
     """List or acknowledge durable cron failure incidents.
 
-    ``hermes cron incidents [--state <s>]`` lists incidents (the stored error
+    ``numbers cron incidents [--state <s>]`` lists incidents (the stored error
     is redacted and truncated at write time, safe for terminal display);
-    ``hermes cron incidents ack <id>`` closes one so its failure ping stays
+    ``numbers cron incidents ack <id>`` closes one so its failure ping stays
     silent until the error signature changes.
     """
     from cron.incidents import ack_incident, list_incidents
@@ -382,7 +382,7 @@ def cron_incidents(args) -> int:
         if not incident_id:
             print(
                 color(
-                    "✗ Incident ID required: hermes cron incidents ack <incident_id>",
+                    "✗ Incident ID required: numbers cron incidents ack <incident_id>",
                     Colors.RED,
                 )
             )
@@ -450,7 +450,7 @@ def cron_incidents(args) -> int:
     print(
         color(
             f"  {len(incidents)} incident(s)  |  ack one with: "
-            "hermes cron incidents ack <id>",
+            "numbers cron incidents ack <id>",
             Colors.DIM,
         )
     )
@@ -540,8 +540,8 @@ def cron_status():
             if pids:
                 print(f"  PID: {', '.join(map(str, pids))}")
             print("  Cron jobs will NOT fire until the ticker writes its first heartbeat.")
-            print("  If the gateway just started, wait ~60s and re-run `hermes cron status`.")
-            print("  If heartbeat never appears, restart: hermes gateway restart")
+            print("  If the gateway just started, wait ~60s and re-run `numbers cron status`.")
+            print("  If heartbeat never appears, restart: numbers gateway restart")
         elif hb_age > STALE_AFTER:
             # No heartbeat at all → the ticker thread is gone.
             print(color(
@@ -551,7 +551,7 @@ def cron_status():
             ))
             if pids:
                 print(f"  PID: {', '.join(map(str, pids))}")
-            print("  Cron jobs may NOT be firing. Restart: hermes gateway restart")
+            print("  Cron jobs may NOT be firing. Restart: numbers gateway restart")
         elif ok_age is not None and ok_age > STALE_AFTER:
             # Loop is alive (fresh heartbeat) but no tick has SUCCEEDED in a
             # long time → ticks are failing every iteration.
@@ -574,7 +574,7 @@ def cron_status():
                     print(color(
                         "  Hint: jobs.json may be owned by another user "
                         "(e.g. rewritten by a root `docker exec hermes "
-                        "hermes cron ...`). Fix ownership to match the "
+                        "numbers cron ...`). Fix ownership to match the "
                         "gateway user, and prefer `docker exec -u <uid>:<gid>`.",
                         Colors.YELLOW,
                     ))
@@ -597,9 +597,9 @@ def cron_status():
         print(color("✗ Gateway is not running — cron jobs will NOT fire", Colors.RED))
         print()
         print("  To enable automatic execution:")
-        print("    hermes gateway install    # Install as a user service")
-        print("    sudo hermes gateway install --system  # Linux servers: boot-time system service")
-        print("    hermes gateway            # Or run in foreground")
+        print("    numbers gateway install    # Install as a user service")
+        print("    sudo numbers gateway install --system  # Linux servers: boot-time system service")
+        print("    numbers gateway            # Or run in foreground")
 
     print()
 
@@ -618,7 +618,7 @@ def _print_active_jobs_summary(jobs) -> None:
             print(f"  Next run: {min(next_runs)}")
         # Missed-run visibility (#99879): call out jobs whose LAST dispatch
         # was late or a catch-up so post-downtime late fires are visible at
-        # status level, not just buried per-job in `hermes cron list`.
+        # status level, not just buried per-job in `numbers cron list`.
         late = [
             j for j in jobs
             if isinstance(j.get("last_dispatch"), dict)
@@ -774,7 +774,7 @@ def cron_doctor() -> int:
         for issue in issues:
             print(f"    - {issue}")
     print()
-    print(color("Next: fix the listed job config, then run `hermes cron doctor` again.", Colors.DIM))
+    print(color("Next: fix the listed job config, then run `numbers cron doctor` again.", Colors.DIM))
     return 1
 
 
@@ -992,7 +992,7 @@ def cron_resume(args) -> int:
 
 
 def cron_notepad(args) -> int:
-    """Handle ``hermes cron notepad <job_id> [get|set|delete|list]``.
+    """Handle ``numbers cron notepad <job_id> [get|set|delete|list]``.
 
     The per-job durable KV scratchpad (``cron/notepad.py``). This CLI is the
     write path — a running cron agent updates its own notepad by invoking
@@ -1013,7 +1013,7 @@ def cron_notepad(args) -> int:
     try:
         if action == "set":
             if key is None or value is None:
-                print(color("Usage: hermes cron notepad <job_id> set <key> <value>", Colors.RED))
+                print(color("Usage: numbers cron notepad <job_id> set <key> <value>", Colors.RED))
                 return 1
             notepad.set_note(job_id, key, value)
             print(color(f"Set notepad key '{key}' for job {job_id}.", Colors.GREEN))
@@ -1021,7 +1021,7 @@ def cron_notepad(args) -> int:
 
         if action == "get":
             if key is None:
-                print(color("Usage: hermes cron notepad <job_id> get <key>", Colors.RED))
+                print(color("Usage: numbers cron notepad <job_id> get <key>", Colors.RED))
                 return 1
             stored = notepad.get_note(job_id, key)
             if stored is None:
@@ -1032,7 +1032,7 @@ def cron_notepad(args) -> int:
 
         if action == "delete":
             if key is None:
-                print(color("Usage: hermes cron notepad <job_id> delete <key>", Colors.RED))
+                print(color("Usage: numbers cron notepad <job_id> delete <key>", Colors.RED))
                 return 1
             if notepad.delete_note(job_id, key):
                 print(color(f"Deleted notepad key '{key}' for job {job_id}.", Colors.GREEN))
@@ -1102,5 +1102,5 @@ def cron_command(args):
         return _job_action("remove", args.job_id, "Removed")
 
     print(f"Unknown cron command: {subcmd}")
-    print("Usage: hermes cron [list|create|edit|pause|resume|run|remove|status|runs|doctor|tick]")
+    print("Usage: numbers cron [list|create|edit|pause|resume|run|remove|status|runs|doctor|tick]")
     sys.exit(1)

@@ -1,4 +1,4 @@
-"""Per-provider model-selection wizard flows for ``hermes setup`` / ``hermes model``.
+"""Per-provider model-selection wizard flows for ``numbers setup`` / ``numbers model``.
 
 Extracted from ``hermes_cli/main.py`` as part of the god-file decomposition
 campaign (``~/.hermes/plans/god-file-decomposition.md``, Phase 2 — splitting
@@ -197,7 +197,7 @@ def _model_flow_openrouter(config, current_model=""):
     # Route through _prompt_api_key so users can replace a stale/broken key
     # in-flow (K/R/C) instead of having to edit ~/.hermes/.env by hand. The
     # previous bypass-when-key-exists branch left no way to recover from a
-    # bad paste short of re-running `hermes setup` from scratch. OpenRouter
+    # bad paste short of re-running `numbers setup` from scratch. OpenRouter
     # isn't in PROVIDER_REGISTRY so we synthesize a minimal pconfig.
     pconfig = ProviderConfig(
         id="openrouter",
@@ -334,7 +334,7 @@ def _model_flow_moa(config, current_model=""):
     moa = normalize_moa_config(config.get("moa") if isinstance(config, dict) else {})
     presets = moa.get("presets") or {}
     if not presets:
-        print("No MoA presets configured. Run `hermes moa configure <name>` first.")
+        print("No MoA presets configured. Run `numbers moa configure <name>` first.")
         return
 
     names = list(presets.keys())
@@ -708,7 +708,7 @@ def _model_flow_openai_codex(config, current_model=""):
             return
 
     _codex_token = None
-    # Prefer credential pool (where `hermes auth` stores device_code tokens),
+    # Prefer credential pool (where `numbers auth` stores device_code tokens),
     # fall back to legacy provider state.
     try:
         _codex_status = get_codex_auth_status()
@@ -802,7 +802,7 @@ def _model_flow_xai_oauth(_config, current_model="", *, args=None):
 
     # Resolve a usable base URL.  ``resolve_xai_oauth_runtime_credentials``
     # only reads from the auth.json singleton — but credentials may legitimately
-    # live only in the pool (e.g. after ``hermes auth add xai-oauth``).  Fall
+    # live only in the pool (e.g. after ``numbers auth add xai-oauth``).  Fall
     # back to the default base URL in that case so the model picker still
     # completes successfully instead of bailing out with
     # ``Could not resolve xAI OAuth credentials``.
@@ -1149,7 +1149,7 @@ def _model_flow_custom(config):
         else:
             _caller_model.pop("api_mode", None)
         config["model"] = _caller_model
-        print("Endpoint saved. Use `/model` in chat or `hermes model` to set a model.")
+        print("Endpoint saved. Use `/model` in chat or `numbers model` to set a model.")
 
     # Auto-save to custom_providers so it appears in the menu next time
     _save_custom_provider(
@@ -2368,7 +2368,7 @@ def _model_flow_bedrock_api_key(config, region, current_model=""):
 
     mantle_base_url = f"https://bedrock-mantle.{region}.api.aws/v1"
 
-    # Check env var and credential pool (keys added via `hermes auth`)
+    # Check env var and credential pool (keys added via `numbers auth`)
     from hermes_cli.auth import _resolve_api_key_provider_secret, ProviderConfig
     bedrock_pconfig = ProviderConfig(
         id="bedrock",
@@ -3296,7 +3296,7 @@ def _model_flow_anthropic(config, current_model=""):
         # Update config with provider — clear base_url since
         # resolve_runtime_provider() always hardcodes Anthropic's URL.
         # Leaving a stale base_url in config can contaminate other
-        # providers if the user switches without running 'hermes model'.
+        # providers if the user switches without running 'numbers model'.
         cfg = load_config()
         model = cfg.get("model")
         if not isinstance(model, dict):

@@ -3198,7 +3198,7 @@ def handle_max_iterations(agent, messages: list, api_call_count: int) -> str:
     """Request a summary when max iterations are reached. Returns the final response text."""
     warning = f"⚠️  Reached maximum iterations ({agent.max_iterations}). Requesting summary..."
     if getattr(agent, "suppress_status_output", False):
-        # Strict machine-readable mode (hermes chat -Q, oneshot, background
+        # Strict machine-readable mode (numbers chat -Q, oneshot, background
         # review): keep diagnostics out of stdout so wrappers receive only
         # the final assistant content (#93220 class). Note: plain quiet_mode
         # is NOT the right gate — the interactive CLI runs quiet_mode=True by

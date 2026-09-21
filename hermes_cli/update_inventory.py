@@ -11,13 +11,13 @@ This is the "plan" phase of the transactional deployment model (#88683):
 The module is deliberately side-effect free — every collector is a probe
 over primitives that already exist (`find_profile_gateway_processes`,
 `_get_service_pids`, `gateway_state.json` code stamps from #91283,
-`detect_install_method`) — so `hermes update --plan` can run on a live
+`detect_install_method`) — so `numbers update --plan` can run on a live
 fleet with zero risk, and the update receipt can embed the inventory
 without changing update behavior.
 
 Deployment kinds (the concept most fleet-update bugs were missing):
 
-    git      — source checkout; updatable in place via `hermes update`
+    git      — source checkout; updatable in place via `numbers update`
     docker   — published image; NOT updatable in place (pull + recreate)
     nix/apt  — package-manager owned; updatable via the manager only
     unknown  — no marker; treated as in-place updatable (legacy default)
@@ -25,7 +25,7 @@ Deployment kinds (the concept most fleet-update bugs were missing):
 Supervisors (how a runtime is restarted after code changes):
 
     systemd / launchd — restart via the service manager (fleet-wide)
-    desktop           — Desktop app supervises `hermes serve`; it respawns
+    desktop           — Desktop app supervises `numbers serve`; it respawns
     manual            — plain process; SIGTERM + watcher/manual relaunch
 """
 
@@ -63,7 +63,7 @@ class UpdatePlan:
 
     install_method: str = "unknown"       # git | docker | nix | apt | ...
     updatable_in_place: bool = True
-    update_mechanism: str = "hermes update"
+    update_mechanism: str = "numbers update"
     expected_sha: Optional[str] = None    # current checkout HEAD (pre-pull)
     expected_version: Optional[str] = None
     profiles: list = field(default_factory=list)
@@ -138,7 +138,7 @@ def describe_restart_mechanism(mechanism: str, profile: str) -> str:
         return "stop before code swap, relaunch with recorded launch args"
     if profile != "default":
         return f"hermes -p {profile} gateway restart"
-    return "hermes gateway restart"
+    return "numbers gateway restart"
 
 
 def collect_runtime_inventory() -> UpdatePlan:
@@ -348,8 +348,8 @@ def collect_runtime_inventory() -> UpdatePlan:
 
     # Serve/dashboard backends from the spawn ledger (#63206). These are the
     # runtimes the gateway collectors above can never see: a manually
-    # launched `hermes serve --host <ip>` for a remote Desktop, or a
-    # long-lived `hermes dashboard`. Every serve/dashboard registers itself
+    # launched `numbers serve --host <ip>` for a remote Desktop, or a
+    # long-lived `numbers dashboard`. Every serve/dashboard registers itself
     # (with structured host/port/profile since #63206) at startup, and
     # ledger_entries() live-verifies (pid, create_time) so PID reuse never
     # fabricates a row. Desktop-supervised backends are classified by their
@@ -602,13 +602,13 @@ def report_unaccounted_runtimes(outcomes: list[dict[str, Any]]) -> bool:
         )
     print("    Restart them manually, then verify:")
     if any(o.get("kind") not in _SERVE_KINDS for o in missed):
-        print("      hermes gateway restart                # active profile")
+        print("      numbers gateway restart                # active profile")
         print("      hermes -p <profile> gateway restart   # named profile")
     if any(o.get("kind") in _SERVE_KINDS for o in missed):
         # A serve/dashboard is not reachable by any `gateway restart`
         # command (#100479): name the process, not the wrong verb.
         print("      systemctl --user restart hermes-serve.service   # unit-managed serve")
-        print("      relaunch `hermes serve` / `hermes dashboard` / the Desktop app")
+        print("      relaunch `numbers serve` / `numbers dashboard` / the Desktop app")
     return True
 
 

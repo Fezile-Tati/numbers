@@ -483,7 +483,7 @@ class CLICommandsMixin:
                 output = str(get_profile_export_path(name))
             result = export_profile(name, output)
             print(f"  ✓ Exported '{name}' to {result}")
-            print("  Share it: the other user runs /import or `hermes profile import <archive>`.")
+            print("  Share it: the other user runs /import or `numbers profile import <archive>`.")
         except (ValueError, FileNotFoundError, OSError) as e:
             print(f"  Error: {e}")
 
@@ -630,7 +630,7 @@ class CLICommandsMixin:
         _cprint(f"  Agent: {'running' if agent_running else 'idle'}")
 
     def _handle_journey_command(self, cmd_original: str) -> None:
-        """Handle /journey — the learning timeline (see `hermes journey`).
+        """Handle /journey — the learning timeline (see `numbers journey`).
 
         The read-only views (default + ``list``) render Rich color, which
         patch_stdout would swallow as raw escapes; capture with forced ANSI and
@@ -776,7 +776,7 @@ class CLICommandsMixin:
         if _remainder:
             _cprint(f"  {_DIM}Now type your prompt (or use --image in single-query mode): {_remainder}{_RST}")
         elif _is_termux_environment():
-            _cprint(f"  {_DIM}Tip: type your next message, or run hermes chat -q --image {_termux_example_image_path(image_path.name)} \"What do you see?\"{_RST}")
+            _cprint(f"  {_DIM}Tip: type your next message, or run numbers chat -q --image {_termux_example_image_path(image_path.name)} \"What do you see?\"{_RST}")
 
     def _handle_tools_command(self, cmd: str):
         """Handle /tools [list|disable|enable] slash commands.
@@ -1009,7 +1009,7 @@ class CLICommandsMixin:
         #
         # PENDING (nobody claimed the row): 60s deadline. A timeout here
         # genuinely means no gateway watcher is looking at this state.db —
-        # "Is `hermes gateway` running?" is the correct diagnosis, and the
+        # "Is `numbers gateway` running?" is the correct diagnosis, and the
         # CAS fail (only_states=("pending",)) can't stomp a claim that lands
         # in the same instant.
         #
@@ -1017,7 +1017,7 @@ class CLICommandsMixin:
         # replaying the full transcript through a synthetic agent turn —
         # routinely slower than 60s on long sessions with reasoning models.
         # Timing out here and failing the row is the bug this replaces: the
-        # CLI printed "Is `hermes gateway` running?" while the gateway was
+        # CLI printed "Is `numbers gateway` running?" while the gateway was
         # mid-delivery, then the watcher overwrote failed → completed
         # (split-brain; the session HAD been switched under the CLI). So in
         # this phase we wait with a much longer bound and a periodic
@@ -1102,7 +1102,7 @@ class CLICommandsMixin:
                 pass
         except Exception:
             pass
-        _cprint("  Timed out waiting for the gateway. Is `hermes gateway` running?")
+        _cprint("  Timed out waiting for the gateway. Is `numbers gateway` running?")
         _cprint("  Your CLI session is intact.")
         return True
 
@@ -1136,7 +1136,7 @@ class CLICommandsMixin:
                 # #34584.
                 self._pending_resume_sessions = self._list_recent_sessions(limit=10)
                 return
-            _cprint("  Tip:   Use /history or `hermes sessions list` to find sessions.")
+            _cprint("  Tip:   Use /history or `numbers sessions list` to find sessions.")
             return
 
         # Any explicit /resume <target> supersedes a previously-armed bare
@@ -1166,7 +1166,7 @@ class CLICommandsMixin:
         session_meta = self._session_db.get_session(target_id)
         if not session_meta:
             _cprint(f"  Session not found: {target}")
-            _cprint("  Use /sessions or `hermes sessions list` to see available sessions.")
+            _cprint("  Use /sessions or `numbers sessions list` to see available sessions.")
             return
 
         # If the target is the empty head of a compression chain, redirect to
@@ -1351,7 +1351,7 @@ class CLICommandsMixin:
         the launcher's exit cleanup applies (kept only when it has unpushed
         commits, same as ``hermes -w``).
 
-        ``prune`` is the same attended reclaim as ``hermes worktree prune``
+        ``prune`` is the same attended reclaim as ``numbers worktree prune``
         (hermes_cli/worktree_gc.py): never deletes tracked changes, unique
         unpushed commits, or in-use trees; archives untracked-only scratch.
         """
@@ -2155,7 +2155,7 @@ class CLICommandsMixin:
     def _handle_curator_command(self, cmd: str):
         """Handle /curator slash command.
 
-        Delegates to hermes_cli.curator so the CLI and the `hermes curator`
+        Delegates to hermes_cli.curator so the CLI and the `numbers curator`
         subcommand share the same handler set.
         """
         import shlex
@@ -2582,7 +2582,7 @@ class CLICommandsMixin:
     def _handle_bundles_command(self, cmd: str) -> None:
         """In-session ``/bundles`` — show installed skill bundles.
 
-        Mirrors ``hermes bundles list`` but renders inside the running
+        Mirrors ``numbers bundles list`` but renders inside the running
         CLI so users can discover what's available without dropping out
         of their session. Bundles are loaded via ``/<bundle-name>``.
         """
@@ -2598,7 +2598,7 @@ class CLICommandsMixin:
         if not bundles:
             _cprint("  No skill bundles installed.")
             _cprint(
-                f"  {_DIM}Create one with: hermes bundles create "
+                f"  {_DIM}Create one with: numbers bundles create "
                 f"<name> --skill <s1> --skill <s2>{_RST}"
             )
             _cprint(f"  {_DIM}Directory: {reply.data['dir']}{_RST}")
@@ -2616,7 +2616,7 @@ class CLICommandsMixin:
                 ChatConsole().print(f"        [dim]· {_escape(s)}[/]")
         _cprint(
             f"\n  {_DIM}Invoke a bundle with /<slug>. "
-            f"Manage with `hermes bundles`.{_RST}"
+            f"Manage with `numbers bundles`.{_RST}"
         )
 
     def _handle_browser_command(self, cmd: str):
@@ -2909,7 +2909,7 @@ class CLICommandsMixin:
         ``/heartbeat every 10m Check the deployment`` sets the session's one
         recurring instruction; the idle watchdog injects it as a normal user
         turn whenever due. Session-scoped and in-process — for durable
-        cross-process schedules use `hermes cron`.
+        cross-process schedules use `numbers cron`.
         """
         from cli import _DIM, _RST, _cprint
         from hermes_cli.heartbeat import parse_interval, format_interval
@@ -2984,7 +2984,7 @@ class CLICommandsMixin:
         _cprint(
             f"  {_DIM}Fires as a normal turn whenever the session is idle and the "
             f"interval has elapsed. /heartbeat pause | resume | clear to manage; "
-            f"lives only while this Hermes process runs — use `hermes cron` for "
+            f"lives only while this Hermes process runs — use `numbers cron` for "
             f"durable schedules.{_RST}"
         )
 
@@ -4056,7 +4056,7 @@ class CLICommandsMixin:
         """Handle /update — update Hermes Agent to the latest version.
 
         In the classic CLI this exits the session and relaunches as
-        ``hermes update`` so the user sees update output directly and gets
+        ``numbers update`` so the user sees update output directly and gets
         the new version on next launch.
 
         Returns ``True`` when the update was confirmed (caller should trigger
@@ -4080,7 +4080,7 @@ class CLICommandsMixin:
         ]
         raw = self._prompt_text_input_modal(
             title="⚕  Update Hermes Agent",
-            detail="This will exit the current session and run `hermes update`.",
+            detail="This will exit the current session and run `numbers update`.",
             choices=choices,
         )
         if raw is None:

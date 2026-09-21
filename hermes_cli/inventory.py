@@ -160,7 +160,7 @@ def build_models_payload(
     - ``pricing``: enrich each row with formatted per-model pricing and,
       for Nous, ``free_tier``/``unavailable_models`` so the GUI picker can
       show $/Mtok columns and gate paid models on free accounts —
-      mirroring the ``hermes model`` CLI picker. Adds network calls
+      mirroring the ``numbers model`` CLI picker. Adds network calls
       (pricing fetch + Nous tier check); only set for interactive pickers.
     - ``pricing_cache_only``: when pricing is enabled, use only values already
       resident in process caches. Normal picker opens use this while a
@@ -687,7 +687,7 @@ def _append_unconfigured_rows(
                 f"Configured provider missing usable credentials; paste {key_env} to reactivate. "
                 "Showing the saved model only."
                 if auth_type == "api_key" and key_env
-                else "Configured provider is not authenticated; run `hermes model` to reactivate. "
+                else "Configured provider is not authenticated; run `numbers model` to reactivate. "
                 "Showing the saved model only."
             )
             extras.append(
@@ -937,7 +937,7 @@ def _apply_picker_hints(rows: list[dict]) -> None:
         row["warning"] = (
             f"paste {key_env} to activate"
             if auth_type == "api_key" and key_env
-            else f"run `hermes model` to configure ({auth_type})"
+            else f"run `numbers model` to configure ({auth_type})"
         )
 
 

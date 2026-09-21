@@ -410,7 +410,7 @@ def _build_gateway_cmd_script(
     (Scheduled Task, Startup folder) routes through the ``.vbs`` launcher,
     which runs this same command line hidden (window style 0).  Run by hand
     in a real terminal, the console interpreter keeps the gateway attached
-    to that terminal like a normal foreground ``hermes gateway run``.
+    to that terminal like a normal foreground ``numbers gateway run``.
 
     We intentionally do NOT inline PATH overrides here — cmd.exe inherits
     the per-user PATH the Scheduled Task was created with, and forcibly
@@ -1054,7 +1054,7 @@ def _install_startup_fallback(script_path: Path, start_now: bool, detail: str) -
         _report_gateway_start(f"direct spawn (PID {pid})")
     else:
         profile_arg = _profile_arg()
-        start_cmd = f"hermes {profile_arg} gateway start" if profile_arg else "hermes gateway start"
+        start_cmd = f"hermes {profile_arg} gateway start" if profile_arg else "numbers gateway start"
         print("ℹ Startup fallback installed; gateway not started now.")
         print(f"  Start manually with: {start_cmd}")
     _print_next_steps()
@@ -1087,7 +1087,7 @@ def install(
                 _report_gateway_start(f"direct spawn (PID {pid})")
         else:
             print("ℹ Gateway not started and no auto-start service installed.")
-            print("  Run later with: hermes gateway start")
+            print("  Run later with: numbers gateway start")
         return
 
     task_name = get_task_name()
@@ -1108,7 +1108,7 @@ def install(
                 if start_now:
                     print("  Approve the Windows UAC prompt; the elevated install will start the gateway afterwards.")
                 else:
-                    print("  Approve the Windows UAC prompt, then run: hermes gateway status")
+                    print("  Approve the Windows UAC prompt, then run: numbers gateway status")
                 return
             print("⚠ Falling back to Startup folder because elevation was unavailable or cancelled.")
         else:
@@ -1130,7 +1130,7 @@ def install(
                 _report_gateway_start(f"direct spawn (PID {pid})")
         else:
             print("ℹ Gateway not started now.")
-            print("  Start manually with: hermes gateway start")
+            print("  Start manually with: numbers gateway start")
         _print_next_steps()
         return
 
@@ -1149,7 +1149,7 @@ def install(
                 if start_now:
                     print("  Approve the Windows UAC prompt; the elevated install will start the gateway afterwards.")
                 else:
-                    print("  Approve the Windows UAC prompt, then run: hermes gateway status")
+                    print("  Approve the Windows UAC prompt, then run: numbers gateway status")
                 return
             print("⚠ Falling back to Startup folder because elevation was unavailable or cancelled.")
         else:
@@ -1176,7 +1176,7 @@ def install(
             _report_gateway_start(f"direct spawn (PID {pid})")
         else:
             profile_arg = _profile_arg()
-            start_cmd = f"hermes {profile_arg} gateway start" if profile_arg else "hermes gateway start"
+            start_cmd = f"hermes {profile_arg} gateway start" if profile_arg else "numbers gateway start"
             print("ℹ Startup fallback installed; gateway not started now.")
             print(f"  Start manually with: {start_cmd}")
         _print_next_steps()
@@ -1375,7 +1375,7 @@ def check_start_attestation(current_pids: list[int] | None = None) -> str | None
         f"⚠ The previous gateway start ({via}, {ts}) reported success, but the "
         f"process (PID {', '.join(map(str, attested))}) died without a clean "
         "shutdown record.",
-        "  This usually means the shell that ran `hermes gateway start` was inside "
+        "  This usually means the shell that ran `numbers gateway start` was inside "
         "a Windows Job Object that killed the gateway on exit (#91675).",
     ]
     try:
@@ -1445,7 +1445,7 @@ def _print_next_steps() -> None:
     hermes_home = Path(get_hermes_home())
     print()
     print("Next steps:")
-    print("  hermes gateway status                      # Check status")
+    print("  numbers gateway status                      # Check status")
     print(f"  type {hermes_home}\\logs\\gateway.log       # View logs")
 
 
@@ -1473,7 +1473,7 @@ def uninstall() -> None:
             if prompt_yes_no("  Open the UAC prompt now?", False):
                 if _launch_elevated_uninstall():
                     print("✓ Launched elevated Hermes gateway uninstall prompt.")
-                    print("  Approve the Windows UAC prompt, then run: hermes gateway status")
+                    print("  Approve the Windows UAC prompt, then run: numbers gateway status")
                     return
                 print("⚠ Elevated uninstall prompt was unavailable or cancelled.")
             else:
@@ -1720,7 +1720,7 @@ def status(deep: bool = False) -> None:
     if not task_installed and not startup_installed and not pids:
         print()
         print("To install:")
-        print("  hermes gateway install")
+        print("  numbers gateway install")
 
 
 def start() -> None:
@@ -1742,14 +1742,14 @@ def start() -> None:
 
         print("✗ Gateway service is not installed")
         if not prompt_yes_no("  Install it now so the gateway starts on login?", True):
-            print("  Run: hermes gateway install")
+            print("  Run: numbers gateway install")
             return
         install(force=False)
         task_installed = is_task_registered()
         startup_installed = is_startup_entry_installed()
         if not task_installed and not startup_installed:
             print("⚠ Gateway install did not complete in this process.")
-            print("  If a UAC prompt opened, approve it, then run: hermes gateway start")
+            print("  If a UAC prompt opened, approve it, then run: numbers gateway start")
             return
 
     # Manual starts use the same console-less direct spawn path as restart()
@@ -1955,5 +1955,5 @@ def restart() -> None:
     if not _wait_for_gateway_ready(timeout_s=15.0):
         raise RuntimeError(
             "Gateway restart did not produce a running gateway process. "
-            "Check logs/gateway.log and run `hermes gateway status`."
+            "Check logs/gateway.log and run `numbers gateway status`."
         )

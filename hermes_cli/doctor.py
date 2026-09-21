@@ -99,7 +99,7 @@ def _sqlite_upgrade_hint(install_method: str | None = None) -> str:
     elif method == "apt":
         action = f"run `{recommended_update_command_for_method(method)}`"
     else:
-        action = "run `hermes update`"
+        action = "run `numbers update`"
     return (
         f"({action}; fixed versions: 3.51.3+ / 3.50.7 / 3.44.6 — "
         "see https://sqlite.org/wal.html#walresetbug)"
@@ -493,7 +493,7 @@ def _render_state_db_stats(stats: dict, holders=None) -> list:
             "warn",
             f"state.db FTS repair is blocked after {attempts or '?'} "
             f"deferral(s) by PID(s) {pids or 'unknown'}",
-            "(stop the listed processes, then run 'hermes sessions "
+            "(stop the listed processes, then run 'numbers sessions "
             "optimize-storage' with the gateway stopped)",
         ))
 
@@ -512,7 +512,7 @@ def _render_state_db_stats(stats: dict, holders=None) -> list:
         )
         if stats.get("fts_rebuild_pending") or stale_trigram:
             detail += (
-                "; run 'hermes sessions optimize-storage' offline "
+                "; run 'numbers sessions optimize-storage' offline "
                 "(with the gateway stopped) to compact FTS storage"
             )
         lines.append((
@@ -767,7 +767,7 @@ def _check_version_consistency(issues: list[str]) -> None:
         _fail_and_issue(
             "Version mismatch between source files",
             f"(pyproject.toml {pyproject_version} != hermes_cli/__init__.py {init_version})",
-            "Re-sync version files (e.g. run 'hermes update', or set "
+            "Re-sync version files (e.g. run 'numbers update', or set "
             "hermes_cli/__init__.py __version__ to match pyproject.toml)",
             issues,
         )
@@ -811,7 +811,7 @@ def _check_s6_supervision(issues: list[str]) -> None:
 
     profiles = mgr.list_profile_gateways()
     if not profiles:
-        check_info("No per-profile gateways registered yet — create one with `hermes profile create <name>`")
+        check_info("No per-profile gateways registered yet — create one with `numbers profile create <name>`")
         return
 
     up_count = sum(1 for p in profiles if mgr.is_running(f"gateway-{p}"))
@@ -853,7 +853,7 @@ def check_certificates(should_fix: bool = False, issues: "list | None" = None) -
         check_fail("SSL CA certificate bundle is broken", first_error)
         if issues is not None:
             issues.append(
-                "Repair the CA bundle: run `hermes doctor --fix`, or "
+                "Repair the CA bundle: run `numbers doctor --fix`, or "
                 f"`{sys.executable} -m pip install --force-reinstall certifi`"
             )
         return
@@ -1111,12 +1111,12 @@ def check_macos_tcc_grants() -> None:
             "macOS TCC grants will reset after every update",
             "the desktop bundle's designated requirement is cdhash-pinned "
             "(pre-#73681 build) — rebuilds invalidate all permission grants. "
-            "Run `hermes update` to get the stable identifier-pinned signing "
+            "Run `numbers update` to get the stable identifier-pinned signing "
             "identity, then re-grant permissions once.",
         )
         return
     if "certificate" in dr.lower():
-        # Certificate-anchored DR (hermes desktop --setup-tcc-identity, or a
+        # Certificate-anchored DR (numbers desktop --setup-tcc-identity, or a
         # notarized release build): the strongest anchor TCC can key on.
         check_ok(
             "macOS TCC signing identity is stable",
@@ -1126,7 +1126,7 @@ def check_macos_tcc_grants() -> None:
         check_ok(
             "macOS TCC signing identity is stable",
             "(identifier-pinned DR; grants survive rebuilds — for the strongest "
-            "anchor, see `hermes desktop --setup-tcc-identity`)",
+            "anchor, see `numbers desktop --setup-tcc-identity`)",
         )
     check_info(
         "If macOS still re-prompts for permissions (toggle shows ON): the stored "
@@ -1264,7 +1264,7 @@ def run_doctor(args):
     # checks (like cronjob management) should see the same context as `hermes`.
     os.environ.setdefault("HERMES_INTERACTIVE", "1")
 
-    # Handle `hermes doctor --ack <id>` as a fast path. Persist the ack and
+    # Handle `numbers doctor --ack <id>` as a fast path. Persist the ack and
     # return without running the rest of the diagnostics — the user has
     # already seen the advisory and just wants to silence it.
     if ack_target:
@@ -1333,7 +1333,7 @@ def run_doctor(args):
                     f"Resolve security advisory {hit.advisory.id}: "
                     f"uninstall {hit.package}=={hit.installed_version} and "
                     f"rotate credentials, then run "
-                    f"`hermes doctor --ack {hit.advisory.id}`."
+                    f"`numbers doctor --ack {hit.advisory.id}`."
                 )
             # Acked-but-still-installed: show as informational so the user
             # knows the package is still on disk after the ack.
@@ -1494,7 +1494,7 @@ def run_doctor(args):
             check_ok("API key or custom endpoint configured")
         else:
             check_warn(f"No API key found in {_DHH}/.env")
-            issues.append("Run 'hermes setup' to configure API keys")
+            issues.append("Run 'numbers setup' to configure API keys")
     else:
         # Also check project root as fallback
         fallback_env = PROJECT_ROOT / '.env'
@@ -1513,11 +1513,11 @@ def run_doctor(args):
                 except OSError:
                     pass
                 check_ok(f"Created empty {_DHH}/.env")
-                check_info("Run 'hermes setup' to configure API keys")
+                check_info("Run 'numbers setup' to configure API keys")
                 fixed_count += 1
             else:
-                check_info("Run 'hermes setup' to create one")
-                issues.append("Run 'hermes setup' to create .env")
+                check_info("Run 'numbers setup' to create one")
+                issues.append("Run 'numbers setup' to create .env")
     
     # Check ~/.hermes/config.yaml (primary) or project cli-config.yaml (fallback)
     config_path = HERMES_HOME / 'config.yaml'
@@ -1626,7 +1626,7 @@ def run_doctor(args):
                         (
                             f"model.provider '{provider_raw}' is unknown. "
                             f"Valid providers: {known_list}. "
-                            f"Fix: run 'hermes config set model.provider <valid_provider>'"
+                            f"Fix: run 'numbers config set model.provider <valid_provider>'"
                         ),
                         issues,
                     )
@@ -1706,11 +1706,11 @@ def run_doctor(args):
                     if not configured:
                         _fail_and_issue(
                             f"model.provider '{runtime_provider}' is set but no API key is configured",
-                            "(check ~/.hermes/.env or run 'hermes setup')",
+                            "(check ~/.hermes/.env or run 'numbers setup')",
                             (
                                 f"No credentials found for provider '{runtime_provider}'. "
-                                f"Run 'hermes setup' or set the provider's API key in {_DHH}/.env, "
-                                f"or switch providers with 'hermes config set model.provider <name>'"
+                                f"Run 'numbers setup' or set the provider's API key in {_DHH}/.env, "
+                                f"or switch providers with 'numbers config set model.provider <name>'"
                             ),
                             issues,
                         )
@@ -1756,9 +1756,9 @@ def run_doctor(args):
                         fixed_count += 1
                     except Exception as mig_err:
                         check_warn(f"Auto-migration failed: {mig_err}")
-                        issues.append("Run 'hermes setup' to migrate config")
+                        issues.append("Run 'numbers setup' to migrate config")
                 else:
-                    issues.append("Run 'hermes doctor --fix' or 'hermes setup' to migrate config")
+                    issues.append("Run 'numbers doctor --fix' or 'numbers setup' to migrate config")
             else:
                 check_ok(f"Config version up to date (v{current_ver})")
         except Exception:
@@ -1798,7 +1798,7 @@ def run_doctor(args):
                     check_ok("Migrated stale root-level keys into model section")
                     fixed_count += 1
                 else:
-                    issues.append("Stale root-level provider/base_url in config.yaml — run 'hermes doctor --fix'")
+                    issues.append("Stale root-level provider/base_url in config.yaml — run 'numbers doctor --fix'")
         except Exception:
             pass
 
@@ -1835,7 +1835,7 @@ def run_doctor(args):
                 check_warn(
                     f"HERMES_MAX_ITERATIONS={env_ghost} in .env shadows "
                     f"agent.max_turns={cfg_max_turns} in config.yaml",
-                    "(stale ghost from an earlier `hermes setup` run)",
+                    "(stale ghost from an earlier `numbers setup` run)",
                 )
                 if should_fix:
                     if remove_env_value("HERMES_MAX_ITERATIONS"):
@@ -1853,7 +1853,7 @@ def run_doctor(args):
                 else:
                     issues.append(
                         "Stale HERMES_MAX_ITERATIONS in .env shadows config.yaml — "
-                        "run 'hermes doctor --fix'"
+                        "run 'numbers doctor --fix'"
                     )
         except Exception:
             pass
@@ -2125,8 +2125,8 @@ def run_doctor(args):
                         )
                 else:
                     issues.append(
-                        "state.db FTS write corruption — run 'hermes doctor --fix' "
-                        "(or 'hermes sessions repair') to rebuild the FTS index"
+                        "state.db FTS write corruption — run 'numbers doctor --fix' "
+                        "(or 'numbers sessions repair') to rebuild the FTS index"
                     )
         except Exception as e:
             from hermes_state import is_malformed_db_error, repair_state_db_schema
@@ -2171,8 +2171,8 @@ def run_doctor(args):
                         )
                 else:
                     issues.append(
-                        "state.db schema malformed — run 'hermes doctor --fix' "
-                        "(or 'hermes sessions repair') to recover hidden sessions"
+                        "state.db schema malformed — run 'numbers doctor --fix' "
+                        "(or 'numbers sessions repair') to recover hidden sessions"
                     )
             else:
                 check_warn(f"{_DHH}/state.db exists but has issues: {e}")
@@ -2197,7 +2197,7 @@ def run_doctor(args):
                             "state.db is large — enable sessions.auto_prune "
                             "in config.yaml"
                             + (
-                                " and run 'hermes sessions optimize-storage' "
+                                " and run 'numbers sessions optimize-storage' "
                                 "offline (gateway stopped)"
                                 if "optimize-storage" in _detail else ""
                             )
@@ -2228,7 +2228,7 @@ def run_doctor(args):
                     check_ok(f"WAL checkpoint performed ({wal_size // 1024}K → {new_size // 1024}K)")
                     fixed_count += 1
                 else:
-                    issues.append("Large WAL file — run 'hermes doctor --fix' to checkpoint")
+                    issues.append("Large WAL file — run 'numbers doctor --fix' to checkpoint")
             elif wal_size > 10 * 1024 * 1024:  # 10 MB
                 check_info(f"WAL file is {wal_size // (1024*1024)} MB (normal for active sessions)")
         except Exception:
@@ -2286,7 +2286,7 @@ def run_doctor(args):
                         check_ok(f"Fixed symlink: {_cmd_link_display}/hermes → {_venv_bin}")
                         fixed_count += 1
                     else:
-                        issues.append(f"Broken symlink at {_cmd_link_display}/hermes — run 'hermes doctor --fix'")
+                        issues.append(f"Broken symlink at {_cmd_link_display}/hermes — run 'numbers doctor --fix'")
             elif _cmd_link.exists():
                 # It's a regular file, not a symlink — possibly a wrapper script
                 check_ok(f"{_cmd_link_display}/hermes exists (non-symlink)")
@@ -2310,7 +2310,7 @@ def run_doctor(args):
                         )
                         manual_issues.append(f"Add {_cmd_link_display} to your PATH")
                 else:
-                    issues.append(f"Missing {_cmd_link_display}/hermes symlink — run 'hermes doctor --fix'")
+                    issues.append(f"Missing {_cmd_link_display}/hermes symlink — run 'numbers doctor --fix'")
 
     _section("External Tools")
     # Git
@@ -2546,7 +2546,7 @@ def run_doctor(args):
             if should_fix:
                 # Doctor can't tell from here whether npx's cache already
                 # has agent-browser warm — just fire the same warm-up
-                # `hermes update` does, so a session's first browser call
+                # `numbers update` does, so a session's first browser call
                 # doesn't pay the registry fetch either way.
                 from tools.browser_tool import warm_agent_browser_npx_cache
                 if warm_agent_browser_npx_cache():
@@ -2559,7 +2559,7 @@ def run_doctor(args):
         elif _resolved_ab:
             # Found on PATH but won't run — almost always a dangling global
             # symlink left behind by agent-browser's npm postinstall after a
-            # `hermes update` wiped node_modules (issue #48521).
+            # `numbers update` wiped node_modules (issue #48521).
             check_warn(
                 "agent-browser found but not runnable",
                 f"(broken symlink at {_resolved_ab}? run: npx agent-browser --version)",
@@ -2582,7 +2582,7 @@ def run_doctor(args):
         if agent_browser_ok and not _is_termux():
             try:
                 # Lazy import: browser_tool is a ~150KB module we don't want
-                # to eagerly load in every `hermes doctor` invocation.
+                # to eagerly load in every `numbers doctor` invocation.
                 from tools.browser_tool import (
                     _chromium_installed,
                     _is_camofox_mode,
@@ -2649,7 +2649,7 @@ def run_doctor(args):
             if not _lp_used:
                 check_warn("browser.engine=lightpanda is shadowed", f"({_lp_reason})")
                 check_info(
-                    "Fix: pick Lightpanda in `hermes tools` → Browser Automation, "
+                    "Fix: pick Lightpanda in `numbers tools` → Browser Automation, "
                     "or set browser.engine: auto"
                 )
             elif find_lightpanda_binary():
@@ -2820,7 +2820,7 @@ def run_doctor(args):
                     [(color("✗", Colors.RED), "OpenRouter API",
                       color("(out of credits — payment required)", Colors.DIM))],
                     ["OpenRouter account has insufficient credits. "
-                     "Fix: run 'hermes config set model.provider <provider>' "
+                     "Fix: run 'numbers config set model.provider <provider>' "
                      "to switch providers, or fund your OpenRouter account "
                      "at https://openrouter.ai/settings/credits"],
                 )
@@ -2959,7 +2959,7 @@ def run_doctor(args):
             # ``ACCESS_TOKEN_TYPE_UNSUPPORTED`` — that header is reserved for
             # OAuth 2 access tokens, not plain API keys. Plain keys use
             # ``x-goog-api-key`` (or ``?key=``). Without this, a perfectly valid
-            # GOOGLE_API_KEY/GEMINI_API_KEY always shows red in ``hermes doctor``.
+            # GOOGLE_API_KEY/GEMINI_API_KEY always shows red in ``numbers doctor``.
             if url and base_url_host_matches(url, "generativelanguage.googleapis.com"):
                 headers.pop("Authorization", None)
                 headers["x-goog-api-key"] = key
@@ -3163,7 +3163,7 @@ def run_doctor(args):
     # Set on the parent thread before submitting work so the env-var
     # mutation never races with another worker. has_aws_credentials() in
     # the bedrock probe already gates on real env-var creds, so IMDS is
-    # never the legitimate source for `hermes doctor`.
+    # never the legitimate source for `numbers doctor`.
     _imds_prev = os.environ.get("AWS_EC2_METADATA_DISABLED")
     os.environ["AWS_EC2_METADATA_DISABLED"] = "true"
     try:
@@ -3236,7 +3236,7 @@ def run_doctor(args):
         api_disabled = _missing_api_key_toolsets_for_summary(unavailable)
         web_not_ready = any(status != "ok" for status, _, _ in web_rows)
         if api_disabled or web_not_ready:
-            issues.append("Run 'hermes setup' to configure missing API keys for full tool access")
+            issues.append("Run 'numbers setup' to configure missing API keys for full tool access")
     except Exception as e:
         check_warn("Could not check tool availability", f"({e})")
     
@@ -3258,7 +3258,7 @@ def run_doctor(args):
         if q_count > 0:
             check_warn(f"{q_count} skill(s) in quarantine", "(pending review)")
     else:
-        check_warn("Skills Hub directory not initialized", "(run: hermes skills list)")
+        check_warn("Skills Hub directory not initialized", "(run: numbers skills list)")
 
     from hermes_cli.config import get_env_value
 
@@ -3301,14 +3301,14 @@ def run_doctor(args):
                         f"config file {_honcho_cfg_path} not found, using HONCHO_API_KEY env var",
                     )
                 else:
-                    check_warn("Honcho config not found", "run: hermes memory setup")
+                    check_warn("Honcho config not found", "run: numbers memory setup")
             elif not hcfg.enabled:
                 check_info(f"Honcho disabled (set enabled: true in {_honcho_cfg_path} to activate)")
             elif not (hcfg.api_key or hcfg.base_url):
                 _fail_and_issue(
                     "Honcho API key or base URL not set",
-                    "run: hermes memory setup",
-                    "No Honcho API key — run 'hermes memory setup'",
+                    "run: numbers memory setup",
+                    "No Honcho API key — run 'numbers memory setup'",
                     issues,
                 )
             else:
@@ -3342,7 +3342,7 @@ def run_doctor(args):
             else:
                 _fail_and_issue(
                     "Mem0 API key not set",
-                    "(set MEM0_API_KEY in .env or run hermes memory setup)",
+                    "(set MEM0_API_KEY in .env or run numbers memory setup)",
                     "Mem0 is set as memory provider but API key is missing",
                     issues,
                 )
@@ -3363,9 +3363,9 @@ def run_doctor(args):
             if _provider and _provider.is_available():
                 check_ok(f"{_active_memory_provider} provider active")
             elif _provider:
-                check_warn(f"{_active_memory_provider} configured but not available", "run: hermes memory status")
+                check_warn(f"{_active_memory_provider} configured but not available", "run: numbers memory status")
             else:
-                check_warn(f"{_active_memory_provider} plugin not found", "run: hermes memory setup")
+                check_warn(f"{_active_memory_provider} plugin not found", "run: numbers memory setup")
         except Exception as _e:
             check_warn(f"{_active_memory_provider} check failed", str(_e))
 
@@ -3413,7 +3413,7 @@ def run_doctor(args):
         pass
 
     # Opt-in live backend probes run AFTER all static checks, only with
-    # `hermes doctor --live` (real network calls; bounded + read-only).
+    # `numbers doctor --live` (real network calls; bounded + read-only).
     try:
         from hermes_cli.doctor_live import maybe_run_live_checks
         maybe_run_live_checks(args, manual_issues)
@@ -3442,7 +3442,7 @@ def run_doctor(args):
             print(f"  {i}. {issue}")
         print()
         if not should_fix:
-            print(color("  Tip: run 'hermes doctor --fix' to auto-fix what's possible.", Colors.DIM))
+            print(color("  Tip: run 'numbers doctor --fix' to auto-fix what's possible.", Colors.DIM))
     else:
         print(color("─" * 60, Colors.GREEN))
         print(color("  All checks passed! 🎉", Colors.GREEN, Colors.BOLD))

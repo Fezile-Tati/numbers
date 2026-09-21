@@ -10,13 +10,13 @@ zero migration needed.
 
 Usage::
 
-    hermes profile create coder          # fresh profile + bundled skills
-    hermes profile create coder --clone  # also copy config, .env, SOUL.md, skills
-    hermes profile create coder --clone-all  # full copy of source profile
+    numbers profile create coder          # fresh profile + bundled skills
+    numbers profile create coder --clone  # also copy config, .env, SOUL.md, skills
+    numbers profile create coder --clone-all  # full copy of source profile
     coder chat                           # use via wrapper alias
     hermes -p coder chat                 # or via flag
-    hermes profile use coder             # set as sticky default
-    hermes profile delete coder          # remove profile + alias + service
+    numbers profile use coder             # set as sticky default
+    numbers profile delete coder          # remove profile + alias + service
 """
 
 import json
@@ -127,7 +127,7 @@ _CLONE_ALL_DEFAULT_EXCLUDE_ROOT: frozenset[str] = frozenset({
 # Rationale per item:
 #   state.db (+wal/shm) — SQLite session store (can reach many GB)
 #   sessions            — per-session transcript/data dirs
-#   backups             — `hermes backup` archives
+#   backups             — `numbers backup` archives
 #   state-snapshots     — quick-backup snapshot trees
 #   checkpoints         — session checkpoint data
 _CLONE_ALL_HISTORY_EXCLUDE_ROOT: frozenset[str] = frozenset({
@@ -140,11 +140,11 @@ _CLONE_ALL_HISTORY_EXCLUDE_ROOT: frozenset[str] = frozenset({
     "checkpoints",
 })
 
-# Marker file written by `hermes profile create --no-skills`.  When present in
+# Marker file written by `numbers profile create --no-skills`.  When present in
 # a profile's root, callers of seed_profile_skills() (fresh-create, `hermes
 # update`'s all-profile sync, the web dashboard) skip bundled-skill seeding
 # for that profile.  The user can still install skills manually via
-# `hermes skills install` or drop SKILL.md files into the profile's skills/.
+# `numbers skills install` or drop SKILL.md files into the profile's skills/.
 # Delete the marker file to opt back in.
 NO_BUNDLED_SKILLS_MARKER = ".no-bundled-skills"
 
@@ -601,7 +601,7 @@ def _migrate_profile_config_if_outdated(profile_dir: Path) -> None:
             reset_hermes_home_override(token)
     except Exception:
         # Profile creation should not fail because an old copied config could
-        # not be migrated. The next `hermes doctor --fix` can still surface the
+        # not be migrated. The next `numbers doctor --fix` can still surface the
         # detailed error in the target profile.
         pass
 
@@ -611,7 +611,7 @@ def find_alias_for_profile(profile_name: str) -> Optional[str]:
 
     A wrapper created by :func:`create_wrapper_script` is a file named after the
     alias whose body invokes ``hermes -p <profile>``. When the alias name equals
-    the profile name this is trivial, but a custom alias (``hermes profile alias
+    the profile name this is trivial, but a custom alias (``numbers profile alias
     <profile> --name <custom>``) produces a differently-named file — so the
     display side cannot assume ``wrapper == profile`` and must reverse-look-up.
 
@@ -730,7 +730,7 @@ def _read_distribution_meta(profile_dir: Path) -> tuple:
     if present; ``(None, None, None)`` otherwise.
 
     Failures (missing file, bad YAML) are swallowed — a bad manifest should
-    never break ``hermes profile list`` for an unrelated profile.
+    never break ``numbers profile list`` for an unrelated profile.
     """
     mf_path = profile_dir / "distribution.yaml"
     if not mf_path.is_file():
@@ -801,7 +801,7 @@ def _seed_model_config(profile_dir: Path) -> None:
             encoding="utf-8",
         )
     except Exception:
-        # Creation must not fail over this; `hermes model` still sets it later.
+        # Creation must not fail over this; `numbers model` still sets it later.
         pass
 
 
@@ -943,7 +943,7 @@ def read_profile_meta(profile_dir: Path) -> dict:
     Returns ``{"description": "", "description_auto": False,
     "display_name": ""}`` when the file is missing or unreadable. Never
     raises — a corrupt profile.yaml on an unrelated profile must not
-    break ``hermes profile list``.
+    break ``numbers profile list``.
     """
     empty = {"description": "", "description_auto": False, "display_name": ""}
     path = _profile_yaml_path(profile_dir)
@@ -1220,7 +1220,7 @@ def create_profile(
         If True, skip wrapper script creation.
     no_skills:
         If True, create an empty profile with no bundled skills, and write
-        a marker file so ``hermes update`` skips re-seeding this profile's
+        a marker file so ``numbers update`` skips re-seeding this profile's
         skills. Mutually exclusive with ``clone_config``/``clone_all`` (those
         explicitly copy skills from the source).
 
@@ -1363,14 +1363,14 @@ def create_profile(
         except Exception:
             pass  # best-effort — don't fail profile creation over this
 
-    # Write the opt-out marker so seed_profile_skills() and `hermes update`'s
+    # Write the opt-out marker so seed_profile_skills() and `numbers update`'s
     # all-profile sync loop both skip this profile for bundled-skill seeding.
     if no_skills:
         try:
             (profile_dir / NO_BUNDLED_SKILLS_MARKER).write_text(
                 "This profile opted out of bundled-skill seeding "
-                "(`hermes profile create --no-skills`).\n"
-                "Delete this file to re-enable sync on the next `hermes update`.\n",
+                "(`numbers profile create --no-skills`).\n"
+                "Delete this file to re-enable sync on the next `numbers update`.\n",
                 encoding="utf-8",
             )
         except OSError:
@@ -1395,7 +1395,7 @@ def create_profile(
                 description_auto=False,
             )
         except Exception:
-            pass  # non-fatal — user can describe later with `hermes profile describe`
+            pass  # non-fatal — user can describe later with `numbers profile describe`
 
     # Phase 4: when running inside a container under s6, register the
     # new profile's gateway as a runtime s6 service so
@@ -1414,7 +1414,7 @@ def seed_profile_skills(profile_dir: Path, quiet: bool = False) -> Optional[dict
     Uses subprocess because sync_skills() caches HERMES_HOME at module level.
     Returns the sync result dict, or None on failure.
 
-    Profiles that opted out of bundled skills (via ``hermes profile create
+    Profiles that opted out of bundled skills (via ``numbers profile create
     --no-skills`` — which writes ``.no-bundled-skills`` to the profile root)
     still run the sync: ``sync_skills()`` detects the marker itself and seeds
     only the essential skills (e.g. ``hermes-agent``), reporting
@@ -1735,7 +1735,7 @@ def delete_profile(name: str, yes: bool = False) -> Path:
     if canon == "default":
         raise ValueError(
             "Cannot delete the default profile (~/.hermes).\n"
-            "To remove everything, use: hermes uninstall"
+            "To remove everything, use: numbers uninstall"
         )
 
     profile_dir = get_profile_dir(canon)
@@ -2113,7 +2113,7 @@ def set_active_profile(name: str) -> None:
     if canon != "default" and not profile_exists(canon):
         raise FileNotFoundError(
             f"Profile '{canon}' does not exist. "
-            f"Create it with: hermes profile create {canon}"
+            f"Create it with: numbers profile create {canon}"
         )
 
     path = _get_active_profile_path()
@@ -2309,7 +2309,7 @@ def _scrub_export_secrets(staged: Path) -> None:
     """Force-redact secret-shaped strings in a staged export tree.
 
     Same ``agent.redact.redact_sensitive_text(..., force=True)`` pass used by
-    ``hermes sessions export --redact``. Runs on the *staged copy only* so the
+    ``numbers sessions export --redact``. Runs on the *staged copy only* so the
     live profile is never rewritten. ``force=True`` ignores
     ``security.redact_secrets`` / ``HERMES_REDACT_SECRETS`` — share archives
     must not emit raw keys even when the user has disabled live redaction.
@@ -2433,7 +2433,7 @@ def import_profile(archive_path: str, name: Optional[str] = None) -> Path:
     if not inferred_name:
         raise ValueError(
             "Cannot determine profile name from archive. "
-            "Specify it explicitly: hermes profile import <archive> --name <name>"
+            "Specify it explicitly: numbers profile import <archive> --name <name>"
         )
     if archive_root is None:
         raise ValueError(
@@ -2448,7 +2448,7 @@ def import_profile(archive_path: str, name: Optional[str] = None) -> Path:
     if canon == "default":
         raise ValueError(
             "Cannot import as 'default' — that is the built-in root profile (~/.hermes). "
-            "Specify a different name: hermes profile import <archive> --name <name>"
+            "Specify a different name: numbers profile import <archive> --name <name>"
         )
 
     profile_dir = get_profile_dir(canon)
@@ -2643,7 +2643,7 @@ def resolve_profile_env(profile_name: str) -> str:
     if not profile_dir.is_dir() or named_profile_is_deleted(profile_dir):
         raise FileNotFoundError(
             f"Profile '{canon}' does not exist. "
-            f"Create it with: hermes profile create {canon}"
+            f"Create it with: numbers profile create {canon}"
         )
 
     return str(profile_dir)

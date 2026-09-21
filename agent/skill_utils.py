@@ -487,7 +487,7 @@ def get_disabled_skill_names(platform: str | None = None) -> Set[str]:
 def parse_config_string_list(value) -> List[str]:
     """Normalize a config value that may hold a JSON-array string into a list.
 
-    ``hermes config set`` and JSON-mode editor saves store lists as quoted
+    ``numbers config set`` and JSON-mode editor saves store lists as quoted
     JSON strings (``'["a","b"]'`` or the Python-literal ``"['a']"``). Treating
     such a string as a single name makes a curated disabled list silently
     filter nothing (#86661); parsing it restores the intended list. A scalar
@@ -718,7 +718,7 @@ def get_all_skills_dirs() -> List[Path]:
 # when the project root is listed in ``skills.trusted_project_dirs`` in
 # config.yaml (Codex-style per-path trust). Untrusted dirs are still
 # *discoverable* via get_untrusted_project_skills_root() so the CLI can print
-# a one-line "run `hermes skills trust`" notice.
+# a one-line "run `numbers skills trust`" notice.
 #
 # PRECEDENCE: trusted project skills override same-named profile/bundled
 # skills (index scans project dirs first; skill_view resolves cross-tier
@@ -855,7 +855,7 @@ def get_untrusted_project_skills_root() -> Optional[Tuple[Path, int]]:
     """When cwd's project has skills but is NOT trusted: (root, skill_count).
 
     Used by the CLI to print a one-line notice pointing at
-    ``hermes skills trust``. Returns None when there is nothing to notify
+    ``numbers skills trust``. Returns None when there is nothing to notify
     about (no project, no skills, already trusted, or discovery disabled).
     """
     parsed = _load_raw_config()
@@ -889,7 +889,7 @@ def get_scan_ordered_skills_dirs() -> List[Path]:
 
 # ── Project skill quarantine (scan-time injection defense) ────────────────
 #
-# Trust (`hermes skills trust`) is a REPO-level decision made once; the repo's
+# Trust (`numbers skills trust`) is a REPO-level decision made once; the repo's
 # skill content keeps changing underneath it with every pull. The hub install
 # path runs skills_guard on install, but project skills are read straight from
 # a checkout — without this gate a `git pull` could inject a malicious skill

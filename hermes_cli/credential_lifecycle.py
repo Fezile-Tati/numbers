@@ -205,7 +205,7 @@ def purge_env_credential_references(
     """
     pruned = _prune_env_pool_entries(env_var)
     providers = sorted(set(pruned) | set(_providers_for_env_var(env_var)))
-    # Make the removal sticky the same way `hermes auth remove` does: a
+    # Make the removal sticky the same way `numbers auth remove` does: a
     # lingering shell export (or another live process's os.environ) would
     # otherwise re-seed the pool entry on the next load_pool(). The matching
     # save path lifts the suppression on an explicit re-add.
@@ -236,7 +236,7 @@ def save_provider_env_credential(env_var: str, value: str) -> Dict[str, Any]:
     value of this var (``model.api_key`` etc.) is updated to the new value so
     a stale higher-precedence copy cannot shadow the rotation (#62269).
     Suppressed ``env:<VAR>`` pool sources are re-enabled so a deliberate
-    re-add through the UI behaves like ``hermes auth add``.
+    re-add through the UI behaves like ``numbers auth add``.
 
     The save also forces an immediate ``load_pool()`` for every provider
     registered against this env var so the env-seeded ``credential_pool``
@@ -244,8 +244,8 @@ def save_provider_env_credential(env_var: str, value: str) -> Dict[str, Any]:
     from the pool, and before #96058 the Desktop "Save" action only touched
     ``.env`` while ``auth.json``'s mtime stayed unchanged, so an OpenCode Go
     (or any other env-backed provider) request kept 401'ing until the user
-    ran ``hermes auth add <provider> --type api-key`` separately. This makes
-    the Desktop save's effect on disk match what ``hermes auth add`` does.
+    ran ``numbers auth add <provider> --type api-key`` separately. This makes
+    the Desktop save's effect on disk match what ``numbers auth add`` does.
     """
     from hermes_cli.config import load_env, save_env_value
 

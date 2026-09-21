@@ -26,12 +26,12 @@ covers both and an abort can strand either one (#92145):
 - **gateway profiles**, relaunched through the existing per-profile
   ``hermes_cli.main -p <profile> gateway restart`` command; and
 - **``hermes-serve*`` systemd units**, restarted directly through
-  ``systemctl``.  ``hermes serve`` is not a gateway profile and has no
+  ``systemctl``.  ``numbers serve`` is not a gateway profile and has no
   per-profile relaunch command, but it is the runtime that hosts
   ``tui_gateway.server``: the process the original report saw answering every
   chat turn with an ``ImportError`` for a symbol that existed on disk.  The
   unit family is enumerated from systemd itself rather than from the update
-  inventory, so a manually launched or Desktop-owned ``hermes serve`` — which
+  inventory, so a manually launched or Desktop-owned ``numbers serve`` — which
   has no relaunch authority — can never enter this path.
 
 Serve-unit identity is always ``<scope>/<unit>`` (``user/hermes-serve``,
@@ -386,7 +386,7 @@ def restart_serve_units(
 ) -> dict[str, list[str]]:
     """Restart every active ``hermes-serve*`` systemd unit from this process.
 
-    ``hermes serve`` hosts ``tui_gateway.server`` and is restarted by the
+    ``numbers serve`` hosts ``tui_gateway.server`` and is restarted by the
     in-process phase alongside the gateway units, but it is not a gateway
     profile: no ``gateway restart`` command reaches it. When the phase aborts
     part-way — systemd lists ``hermes-gateway.service`` before
@@ -396,7 +396,7 @@ def restart_serve_units(
 
     Units are enumerated from systemd, never from the update inventory. That
     keeps the relaunch authority requirement structural: a manually launched
-    or Desktop-owned ``hermes serve`` owns no unit and therefore cannot be
+    or Desktop-owned ``numbers serve`` owns no unit and therefore cannot be
     touched here.
 
     Every identity in and out of this function is scope-qualified. The user

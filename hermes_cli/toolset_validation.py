@@ -105,13 +105,13 @@ def validate_platform_toolsets(
                 value_detail = f"invalid {type(raw).__name__} toolset value"
             warnings.append(
                 f"platform '{platform}' has {value_detail} — "
-                f"{fallback_detail}. Run `hermes tools` to configure explicitly."
+                f"{fallback_detail}. Run `numbers tools` to configure explicitly."
             )
             if platform_valid_count == 0:
                 warnings.append(
                     f"platform '{platform}' has no valid toolsets configured — "
                     f"the agent will have no tools on this platform. "
-                    f"Run `hermes tools` to reconfigure."
+                    f"Run `numbers tools` to reconfigure."
                 )
             continue
         names = raw
@@ -153,12 +153,12 @@ def validate_platform_toolsets(
                 reason = "has no valid toolsets configured"
             warnings.append(
                 f"platform '{platform}' {reason} — the agent will have no "
-                f"tools on this platform. Run `hermes tools` to reconfigure."
+                f"tools on this platform. Run `numbers tools` to reconfigure."
             )
 
     if valid_count == 0:
         warnings.append(
             "platform_toolsets resolves to zero valid toolsets — the agent will "
-            "have no tools. Run `hermes tools` to reconfigure."
+            "have no tools. Run `numbers tools` to reconfigure."
         )
     return warnings

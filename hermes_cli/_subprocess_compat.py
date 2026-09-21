@@ -678,7 +678,7 @@ def bounded_probe_run(
     ``conhost.exe`` under wmic/powershell) holding duplicates of the captured
     stdout/stderr handles, so the pipes never reach EOF and the reader-thread
     join blocks forever. The wmic / ``Get-CimInstance Win32_Process`` gateway
-    scan hit exactly this during ``hermes update`` on slow-WMI machines
+    scan hit exactly this during ``numbers update`` on slow-WMI machines
     (#87134); the git probes hit it first (#68609 / #66037).
 
     The bounded flow: an explicit ``communicate(timeout)``, then on any

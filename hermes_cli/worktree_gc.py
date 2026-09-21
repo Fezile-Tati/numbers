@@ -1,4 +1,4 @@
-"""On-demand worktree + branch reclaim (``hermes worktree`` / ``/worktree prune``).
+"""On-demand worktree + branch reclaim (``numbers worktree`` / ``/worktree prune``).
 
 The startup pruner in ``cli._prune_stale_worktrees`` is deliberately
 conservative and silent: it runs before the banner on every ``hermes -w``

@@ -52,7 +52,7 @@ DEFAULT_CONFIG = {
         # null/absent = feature fully off (zero behavior change). When set,
         # the agent gets a one-time wrap-up notice at 80% elapsed and
         # implicit provider stale timeouts are capped to the remaining
-        # budget. CLI one-shot equivalent: `hermes chat --run-budget N`.
+        # budget. CLI one-shot equivalent: `numbers chat --run-budget N`.
         "run_budget_seconds": None,
         # Inactivity timeout for gateway agent execution (seconds).
         # The agent can run indefinitely as long as it's actively calling
@@ -114,7 +114,7 @@ DEFAULT_CONFIG = {
         # so the requesting turn is not amputated by restart_drain_timeout.
         # 0 = legacy behaviour (enter stop()/drain immediately). Default
         # 30 min is a safety valve for wedged agents, not a target latency —
-        # an interactive `hermes gateway restart` must never block for hours
+        # an interactive `numbers gateway restart` must never block for hours
         # on a turn that wedged (#79133). Long unattended turns can raise
         # this in config.yaml.
         "restart_after_turn_timeout": 1800,
@@ -304,14 +304,14 @@ DEFAULT_CONFIG = {
         # After this many pre-send heal passes within a 10-minute session
         # window, log one ERROR (session id + heal pattern) and queue a
         # ONE-TIME out-of-band user notice pointing at /debug share or
-        # `hermes doctor`. Delivered via the status channel only —
+        # `numbers doctor`. Delivered via the status channel only —
         # conversation context / prompt caching untouched. 0 = disable
         # escalation (per-window WARNINGs still fire).
         "sanitizer_heal_escalation_threshold": 3,
         # Long-lived reconnect-loop escalation (seconds). A platform that has
         # been continuously failing/reconnecting for this long gets
         # needs_attention flagged in gateway runtime status (visible in
-        # `hermes status` / fleet monitoring). Retries never stop — this is a
+        # `numbers status` / fleet monitoring). Retries never stop — this is a
         # signal, not a circuit breaker. 0 = disable.
         "reconnect_attention_after": 7200,
         # Freshness window for the gateway auto-continue note (seconds).
@@ -571,7 +571,7 @@ DEFAULT_CONFIG = {
         # Per-provider tier selection for vendors with both a keyless
         # free endpoint and a keyed paid path (exa, parallel,
         # firecrawl, keenable on the ring; tavily is opt-in keyless via
-        # `hermes tools`, not a ring member). Set by the `hermes tools`
+        # `numbers tools`, not a ring member). Set by the `numbers tools`
         # picker's "Free (keyless)" / "Paid (API key)" rows.
         #   free  — always use the anonymous free endpoint (even with a key)
         #   paid  — always use the keyed path (missing key = error; vendor
@@ -624,7 +624,7 @@ DEFAULT_CONFIG = {
         # "chrome"     — explicitly request Chrome
         # Ignored while a cloud provider, Camofox, browser.cdp_url or
         # browser.use_real_profile is active — `/browser status` and
-        # `hermes doctor` say so. Also settable via AGENT_BROWSER_ENGINE.
+        # `numbers doctor` say so. Also settable via AGENT_BROWSER_ENGINE.
         "engine": "auto",
         "auto_local_for_private_urls": True,  # When a cloud provider is set, auto-spawn local Chromium for LAN/localhost URLs instead of sending them to the cloud
         "cdp_url": "",  # Optional persistent CDP endpoint for attaching to an existing Chromium/Chrome
@@ -650,7 +650,7 @@ DEFAULT_CONFIG = {
         # fully quit before its profile can be copied), arm the "offer to close
         # it" flow. This does NOT auto-kill: when the profile is locked the
         # snapshot always blocks and the agent asks the user first; only on
-        # approval does it run `hermes browser close-profile` (terminates the
+        # approval does it run `numbers browser close-profile` (terminates the
         # browser process tree bound to that profile, losing unsaved tabs) and
         # retry. Still locked afterward → stays blocked, no loop, no auto-kill.
         # OFF by default. No effect on macOS/Linux (copy-while-running works).
@@ -709,7 +709,7 @@ DEFAULT_CONFIG = {
     #   - enabled: True -> False   (opt-in; most users never use /rollback)
     #   - max_snapshots: 50 -> 20  (now actually enforced via ref rewrite)
     #   - auto_prune:   False -> True (orphans/stale pruned automatically)
-    # Opt in via ``hermes chat --checkpoints`` or set enabled=True here.
+    # Opt in via ``numbers chat --checkpoints`` or set enabled=True here.
     "checkpoints": {
         "enabled": False,
         # Max checkpoints to keep per working directory.  Pre-v2 this only
@@ -739,7 +739,7 @@ DEFAULT_CONFIG = {
         # external volume / network share / VPN is simply not mounted yet —
         # and this sweep runs unattended, so it must never guess. Orphan
         # cleanup is only available via the explicit
-        # ``hermes checkpoints prune`` command (add ``--keep-orphans`` to
+        # ``numbers checkpoints prune`` command (add ``--keep-orphans`` to
         # skip it), where a human is looking at the output.
         "auto_prune": True,
         "retention_days": 7,
@@ -1298,7 +1298,7 @@ DEFAULT_CONFIG = {
         },
         # Triage specifier — flesh out a rough one-liner in the Kanban
         # Triage column into a concrete spec, then promote it to ``todo``.
-        # Invoked by ``hermes kanban specify`` (single id or --all). Set a
+        # Invoked by ``numbers kanban specify`` (single id or --all). Set a
         # cheap, capable model here (gemini-flash works well); the main
         # model is overkill for short spec expansion.
         "triage_specifier": {
@@ -1312,7 +1312,7 @@ DEFAULT_CONFIG = {
         },
         # Kanban decomposer — decomposes a triage task into a graph of
         # child tasks routed to specialist profiles by description.
-        # Invoked by ``hermes kanban decompose`` and the kanban
+        # Invoked by ``numbers kanban decompose`` and the kanban
         # auto-decompose dispatcher tick. Returns a JSON task graph;
         # uses more tokens than the specifier so allow more headroom.
         "kanban_decomposer": {
@@ -1326,7 +1326,7 @@ DEFAULT_CONFIG = {
         },
         # Profile describer — auto-generates a 1-2 sentence description
         # of what a profile is good at. Invoked by
-        # ``hermes profile describe <name> --auto`` and the dashboard's
+        # ``numbers profile describe <name> --auto`` and the dashboard's
         # auto-generate button. Short, cheap call.
         "profile_describer": {
             "provider": "auto",
@@ -1352,7 +1352,7 @@ DEFAULT_CONFIG = {
         # Curator — skill-usage review fork. Timeout is generous because the
         # review pass can take several minutes on reasoning models (umbrella
         # building over hundreds of candidate skills). "auto" = use main chat
-        # model; override via `hermes model` → auxiliary → Curator to route
+        # model; override via `numbers model` → auxiliary → Curator to route
         # to a cheaper aux model (e.g. openrouter google/gemini-3-flash-preview).
         "curator": {
             "provider": "auto",
@@ -1463,7 +1463,7 @@ DEFAULT_CONFIG = {
         # Set false to restore the legacy c-j submit fallback on unusual POSIX
         # PTYs whose plain Enter arrives as LF instead of CR.
         "cli_multiline_shortcuts": True,
-        # Which interface bare `hermes` (and `hermes chat`) launches by default:
+        # Which interface bare `hermes` (and `numbers chat`) launches by default:
         #   "cli" — the classic prompt_toolkit REPL (default, preserves prior behavior)
         #   "tui" — the modern Ink TUI (same as passing `--tui`)
         # Explicit flags always win over this setting: `--cli` forces the classic
@@ -1691,7 +1691,7 @@ DEFAULT_CONFIG = {
         "copy_shortcut": "auto",  # "auto" (platform default) | "ctrl_c" | "ctrl_shift_c" | "disabled"
         # Petdex animated mascot (https://github.com/crafter-station/petdex).
         # A purely cosmetic sprite that reacts to agent activity across the
-        # CLI, TUI, and desktop app. Manage with `hermes pets`. Disabled until
+        # CLI, TUI, and desktop app. Manage with `numbers pets`. Disabled until
         # a pet is installed + selected (no effect on prompt caching — this is
         # a display concern only).
         "pet": {
@@ -2314,11 +2314,11 @@ DEFAULT_CONFIG = {
         # checkout, ``<root>/.hermes/skills/`` and ``<root>/.agents/skills/``
         # are sourced as the highest-precedence skill tier — but ONLY when the
         # project root is listed in trusted_project_dirs below. Trust a repo
-        # with ``hermes skills trust`` (run from inside it). Set to false to
+        # with ``numbers skills trust`` (run from inside it). Set to false to
         # disable discovery entirely (no scan, no untrusted-skills notice).
         "project_discovery": True,
         # Absolute paths of project roots whose repo-local skills may load.
-        # Managed by ``hermes skills trust`` / ``hermes skills untrust``.
+        # Managed by ``numbers skills trust`` / ``numbers skills untrust``.
         "trusted_project_dirs": [],
         # Substitute ${HERMES_SKILL_DIR} and ${HERMES_SESSION_ID} in SKILL.md
         # content with the absolute skill directory and the active session id
@@ -2346,7 +2346,7 @@ DEFAULT_CONFIG = {
         # scanned regardless of this setting.
         "guard_agent_created": False,
         # Advisory NVIDIA SkillEvaluator Tier 1 scan on hub installs
-        # (`hermes skills install`). Runs ALONGSIDE the built-in skills
+        # (`numbers skills install`). Runs ALONGSIDE the built-in skills
         # guard (which stays the enforcement layer) and only when the
         # optional `skillevaluator` binary is on PATH:
         #   uv tool install --python 3.13 \
@@ -2373,8 +2373,8 @@ DEFAULT_CONFIG = {
         # — curator, agent, or user — appends one JSONL entry to
         # ~/.hermes/skills/.curator_ledger.jsonl with before/after file
         # hashes; file contents are stored content-addressed (deduped) under
-        # ~/.hermes/.curator_backups/blobs/. Enables `hermes curator ledger`
-        # and single-mutation `hermes curator rollback <entry-id>`.
+        # ~/.hermes/.curator_backups/blobs/. Enables `numbers curator ledger`
+        # and single-mutation `numbers curator rollback <entry-id>`.
         # Telemetry, never a gate: ledger failures cannot block a mutation.
         "ledger": True,
     },
@@ -2388,7 +2388,7 @@ DEFAULT_CONFIG = {
     # and patch drift. Runs inactivity-triggered from session start — no
     # cron daemon.
     #
-    # See `hermes curator status` for the last run summary.
+    # See `numbers curator status` for the last run summary.
     "curator": {
         "enabled": True,
         # How long to wait between curator runs (hours).  Default: 7 days.
@@ -2405,12 +2405,12 @@ DEFAULT_CONFIG = {
         # (mark stale / archive long-unused skills) and skips the forked
         # aux-model review entirely — no umbrella-building, no aux-model cost.
         # Set to true to opt back into merging overlapping skills into
-        # class-level umbrellas. `hermes curator run --consolidate` overrides
+        # class-level umbrellas. `numbers curator run --consolidate` overrides
         # this for a single invocation.
         "consolidate": False,
         # Also prune (archive) bundled built-in skills after the inactivity
         # period, not just agent-created ones. ON by default. Built-ins are
-        # normally restored on every `hermes update`, so pruning them only
+        # normally restored on every `numbers update`, so pruning them only
         # sticks because a suppression list tells the re-seeder to leave them
         # archived. Hub-installed skills are NEVER pruned here — they have an
         # external upstream owner. Built-ins accrue usage telemetry and their
@@ -2420,14 +2420,14 @@ DEFAULT_CONFIG = {
         # to keep all bundled built-ins permanently.
         "prune_builtins": True,
         # TTL purge of skills/.archive/. 0 (default) = never purge — archived
-        # skills are kept forever. When > 0, `hermes curator purge` deletes
+        # skills are kept forever. When > 0, `numbers curator purge` deletes
         # archived skills older than this many days (explicit command only,
         # never automatic; every purge is recorded in the audit ledger).
         "archive_ttl_days": 0,
         # Pre-run backup: before every real curator pass (dry-run is
         # skipped), snapshot ~/.hermes/skills/ into
         # ~/.hermes/skills/.curator_backups/<utc-iso>/skills.tar.gz so the
-        # user can roll back with `hermes curator rollback`.
+        # user can roll back with `numbers curator rollback`.
         "backup": {
             "enabled": True,
             "keep": 5,  # retain last N regular snapshots
@@ -2688,7 +2688,7 @@ DEFAULT_CONFIG = {
     "platform_hints": {},
 
     # Plugin system settings. ``enabled`` / ``disabled`` are written by
-    # ``hermes plugins enable|disable`` and intentionally omitted here so an
+    # ``numbers plugins enable|disable`` and intentionally omitted here so an
     # empty default does not clobber a user's allow-list on merge.
     "plugins": {
         # Wall-clock cap (seconds) for a single in-process Python plugin hook
@@ -2752,7 +2752,7 @@ DEFAULT_CONFIG = {
         # Acknowledged supply-chain security advisories. Each entry is the
         # ID of an advisory the user has read and acted on (uninstalled the
         # compromised package, rotated credentials). Acked advisories no
-        # longer trigger the startup banner. Add via `hermes doctor --ack
+        # longer trigger the startup banner. Add via `numbers doctor --ack
         # <id>`; remove by editing the list directly. See
         # ``hermes_cli/security_advisories.py`` for the catalog.
         "acked_advisories": [],
@@ -2957,7 +2957,7 @@ DEFAULT_CONFIG = {
         "max_in_progress_per_profile": None,
         # When true, the kanban dispatcher auto-runs the decomposer on
         # tasks that land in Triage (every dispatcher tick). When false,
-        # decomposition is manual via `hermes kanban decompose <id>` or
+        # decomposition is manual via `numbers kanban decompose <id>` or
         # the dashboard's Decompose button.
         "auto_decompose": True,
         # Max triage tasks to decompose per dispatcher tick. Prevents a
@@ -3123,7 +3123,7 @@ DEFAULT_CONFIG = {
         "url": "https://hermes-agent.nousresearch.com/docs/api/model-catalog.json",
         # Disk cache TTL in minutes.  The gateway refreshes the catalogs on
         # this cadence in the background; the CLI refetches on the next
-        # /model or `hermes model` invocation once the cache is older than
+        # /model or `numbers model` invocation once the cache is older than
         # this.  Network failures silently fall back to the stale cache.
         # (Legacy `ttl_hours` is still honoured when set explicitly.)
         "ttl_minutes": 20,
@@ -3339,7 +3339,7 @@ DEFAULT_CONFIG = {
         # the breaker never tripped — e.g. the ~150s wedged-event-loop cycle in
         # #81642 (stall -> ~90s liveness-watchdog hard-exit -> respawn ->
         # auto-resume replays the same session), which also makes
-        # `hermes update` hang because it can never drain the gateway.
+        # `numbers update` hang because it can never drain the gateway.
         "restart_loop_guard": {
             "max_restarts": 3,
             "window_seconds": 60,
@@ -3500,7 +3500,7 @@ DEFAULT_CONFIG = {
         # ended session forever.
         "auto_prune": True,
         # How many inactive days of ended-session history to keep. Matches
-        # the default of ``hermes sessions prune``.
+        # the default of ``numbers sessions prune``.
         "retention_days": 90,
         # When true, auto-archive (soft-hide, never delete) sessions that
         # haven't been touched in ``auto_archive_days`` days, once per
@@ -3540,10 +3540,10 @@ DEFAULT_CONFIG = {
         # that drops duplicate content copies and stops trigram-indexing tool
         # output (typically reclaims ~60%+ of state.db on heavy users). It is
         # OPT-IN: existing databases keep their working legacy index until the
-        # user runs `hermes sessions optimize-storage`, because the rebuild is
+        # user runs `numbers sessions optimize-storage`, because the rebuild is
         # disk-heavy and long on large DBs (see that command's disk preflight).
         #
-        #   "advise" (default): `hermes update` prints a one-line notice with
+        #   "advise" (default): `numbers update` prints a one-line notice with
         #     the reclaimable size and the command, when a legacy index is
         #     detected. Nothing is changed automatically.
         #   "require": the notice is shown as a REQUIRED upgrade (firmer copy),
@@ -3575,7 +3575,7 @@ DEFAULT_CONFIG = {
         # may hold and still be resumed interactively (CLI/TUI/desktop).
         "max_resume_messages": 20000,
         # Max active messages a single session may hold for an in-memory
-        # (non-streaming) export such as `hermes sessions export`. Checked
+        # (non-streaming) export such as `numbers sessions export`. Checked
         # per session, so full-DB backups of many small sessions still work.
         "max_export_messages": 20000,
     },
@@ -3618,14 +3618,14 @@ DEFAULT_CONFIG = {
         },
     },
 
-    # ``hermes doctor`` behaviour.
+    # ``numbers doctor`` behaviour.
     "doctor": {
-        # Per-probe timeout (seconds) for the opt-in `hermes doctor --live`
+        # Per-probe timeout (seconds) for the opt-in `numbers doctor --live`
         # real-call backend probes (Firecrawl/FAL/browser/MCP/TTS/STT).
         "live_probe_timeout": 10,
     },
 
-    # ``hermes update`` behaviour.
+    # ``numbers update`` behaviour.
     "updates": {
         # Pre-update safety backup — ONE consolidated mechanism, three modes:
         #
@@ -3636,9 +3636,9 @@ DEFAULT_CONFIG = {
         #     warning so the snapshot stays fast. Restore via ``/snapshot``.
         #     This is the #15733 (lost pairing data) / #34600 (emptied cron
         #     jobs) safety net.
-        #   full — the quick snapshot PLUS a full ``hermes backup``-style zip
+        #   full — the quick snapshot PLUS a full ``numbers backup``-style zip
         #     of HERMES_HOME into <HERMES_HOME>/backups/, restorable with
-        #     ``hermes import``. Can add minutes on large homes. This is the
+        #     ``numbers import``. Can add minutes on large homes. This is the
         #     #48200 (wrong-path wipe) safety net. ``--backup`` forces this
         #     for a single run.
         #   off — no pre-update backup of any kind. ``--no-backup`` forces
@@ -3651,7 +3651,7 @@ DEFAULT_CONFIG = {
         # Values below 1 are floored to 1 — the backup just created is
         # always preserved. The quick snapshot always keeps exactly 1.
         "backup_keep": 5,
-        # What `hermes update` does with uncommitted local changes to the
+        # What `numbers update` does with uncommitted local changes to the
         # source tree when it runs NON-interactively — i.e. triggered from
         # the desktop/chat app or the gateway, where there's no TTY to answer
         # a restore prompt. Interactive (terminal) updates are unaffected:
@@ -3667,7 +3667,7 @@ DEFAULT_CONFIG = {
         #               ignored paths — node_modules, venv, build outputs —
         #               are never touched.
         "non_interactive_local_changes": "stash",
-        # When `hermes update` finds the source checkout parked on a feature
+        # When `numbers update` finds the source checkout parked on a feature
         # branch (left behind by tooling or a manual checkout), switch back
         # to the update target automatically whenever the working tree is
         # clean. Committed-but-unmerged work is safe — `git checkout` never
@@ -3695,12 +3695,12 @@ DEFAULT_CONFIG = {
         #                         survive; a conflict stops the update
         #                         cleanly with nothing changed. A safety tag
         #                         (pre-update-<stamp>) is left before the
-        #                         merge. `hermes update --switch-branch`
+        #                         merge. `numbers update --switch-branch`
         #                         overrides back to the switch path for one
         #                         run (e.g. a deep feature branch that must
         #                         not accumulate update merge commits).
         "parked_branch_strategy": "switch",
-        # Refresh an already-installed cua-driver during `hermes update`.
+        # Refresh an already-installed cua-driver during `numbers update`.
         # The refresh is best-effort and macOS-only. Turn this off if the
         # upstream installer is not appropriate for the machine, for example
         # on non-admin accounts where `/Applications` is not writable.
@@ -3766,7 +3766,7 @@ DEFAULT_CONFIG = {
     # X (Twitter) Search via xAI's built-in x_search Responses tool.
     # The tool registers when xAI credentials are available (SuperGrok
     # OAuth or XAI_API_KEY) AND the x_search toolset is enabled in
-    # `hermes tools`. These settings tune the backing Responses API call.
+    # `numbers tools`. These settings tune the backing Responses API call.
     "x_search": {
         # xAI model used for the Responses call. grok-4.5 is the
         # recommended default; any Grok model with x_search tool
@@ -3836,7 +3836,7 @@ DEFAULT_CONFIG = {
             # https://vault.bitwarden.eu for EU Cloud, or your own URL
             # for self-hosted Bitwarden.  Plumbed into the bws subprocess
             # as BWS_SERVER_URL.  Prompted for during
-            # `hermes secrets bitwarden setup`.
+            # `numbers secrets bitwarden setup`.
             "server_url": "",
         },
         "onepassword": {
@@ -3949,7 +3949,7 @@ DEFAULT_CONFIG = {
     # leaks tokens that only work behind the configured trusted proxy boundary
     # (CA private key + proxy endpoint integrity are part of that boundary).
     #
-    # Configure with `hermes egress setup`.  Disabled by default — the rest of
+    # Configure with `numbers egress setup`.  Disabled by default — the rest of
     # Hermes works exactly as before with `enabled: false`.
     "proxy": {
         # Master switch.  When false, iron-proxy is never started, no docker
@@ -4000,7 +4000,7 @@ DEFAULT_CONFIG = {
     },
 
     # Hermes Desktop (Electron app) launch options. These only affect
-    # `hermes desktop`; they do not touch the CLI/gateway.
+    # `numbers desktop`; they do not touch the CLI/gateway.
     "desktop": {
         # Git repository discovery for the Desktop Projects sidebar. Empty
         # roots preserve the historical bounded scan of the user's home.
@@ -4543,7 +4543,7 @@ OPTIONAL_ENV_VARS = {
         "category": "provider",
     },
     "AZURE_FOUNDRY_BASE_URL": {
-        "description": "Azure Foundry base URL (set via 'hermes model' for endpoint-specific config)",
+        "description": "Azure Foundry base URL (set via 'numbers model' for endpoint-specific config)",
         "prompt": "Azure Foundry base URL",
         "url": None,
         "password": False,

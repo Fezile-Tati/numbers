@@ -1,4 +1,4 @@
-"""hermes memory setup|status — configure memory provider plugins.
+"""numbers memory setup|status — configure memory provider plugins.
 
 Auto-detects installed memory providers via the plugin system.
 Interactive curses-based UI for provider selection, then walks through
@@ -25,7 +25,7 @@ def _provider_pip_dependencies(provider_name: str, declared: list) -> list:
     some providers install mode-dependent extras at setup time that the
     manifest can't express. Hindsight's ``local_embedded`` mode installs
     ``hindsight-all`` (daemon + embedder + client) during
-    ``hermes memory setup`` — if the update-time refresh only reinstalled
+    ``numbers memory setup`` — if the update-time refresh only reinstalled
     the declared ``hindsight-client``, the embedded daemon would stay
     broken after a venv rebuild stripped ``hindsight-embed`` (#70636).
     """
@@ -45,7 +45,7 @@ def _provider_pip_dependencies(provider_name: str, declared: list) -> list:
 
 
 # ---------------------------------------------------------------------------
-# Curses-based interactive picker (same pattern as hermes tools)
+# Curses-based interactive picker (same pattern as numbers tools)
 # ---------------------------------------------------------------------------
 
 def _curses_select(
@@ -109,7 +109,7 @@ def _install_dependencies(provider_name: str, *, force: bool = False) -> None:
     When ``force`` is true, every declared dependency is handed to the
     installer even if its import currently succeeds — the resolver then
     reinstalls anything missing or version-drifted and no-ops on satisfied
-    ranges. This is how ``hermes update`` heals the active memory provider
+    ranges. This is how ``numbers update`` heals the active memory provider
     after a venv rebuild/sync removed or downgraded its bridge packages
     (#53272, #70636).
     """
@@ -254,7 +254,7 @@ def cmd_setup_provider(provider_name: str) -> None:
 
     if not match:
         print(f"\n  Memory provider '{provider_name}' not found.")
-        print("  Run 'hermes memory setup' to see available providers.\n")
+        print("  Run 'numbers memory setup' to see available providers.\n")
         return
 
     name, _, provider = match

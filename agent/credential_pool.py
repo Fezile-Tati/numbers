@@ -101,7 +101,7 @@ CREDENTIAL_PERSIST_FAILED_REASON = "credential_persist_failed"
 # Manual entries (``manual:*``) are independent credentials with no singleton
 # to re-seed from, so pruning them after a quiet window cleans up dead state
 # without losing recoverability — the user always has the option to re-add
-# via ``hermes auth add``.
+# via ``numbers auth add``.
 #
 # Singleton-seeded entries (``device_code``, ``claude_code``)
 # are NOT pruned because ``_seed_from_singletons`` would just re-create them
@@ -533,7 +533,7 @@ def custom_provider_pool_key_candidates(
 ) -> List[str]:
     """Return pool keys to try for a custom endpoint.
 
-    ``hermes auth add <key>`` stores new-style ``providers.<key>`` credentials
+    ``numbers auth add <key>`` stores new-style ``providers.<key>`` credentials
     under the durable config slug (``b-ai``). Older rows and legacy
     ``custom_providers:`` entries still live under ``custom:<display-name>``.
     Try the slug first, then the legacy namespace, so a populated pool is not
@@ -1264,7 +1264,7 @@ class CredentialPool:
         When a Codex OAuth access token expires (or the ChatGPT account hits
         its 5h/weekly quota), the pool entry gets marked ``STATUS_EXHAUSTED``
         with a ``last_error_reset_at`` that can be many hours in the future.
-        Meanwhile the user may run ``hermes model`` / ``hermes auth`` which
+        Meanwhile the user may run ``numbers model`` / ``numbers auth`` which
         performs a fresh device-code login and writes new tokens to
         ``auth.json`` under ``_auth_store_lock``.  Without this sync the pool
         entry stays frozen until ``last_error_reset_at`` elapses — even
@@ -1533,7 +1533,7 @@ class CredentialPool:
         here would mean every Nous/Codex/xAI refresh in a multi-provider
         setup silently flips the ``active_provider`` flag — the next
         ``hermes`` invocation that defaults to the active provider
-        (e.g. setup wizard, ``hermes auth status``) would land on
+        (e.g. setup wizard, ``numbers auth status``) would land on
         whatever provider happened to refresh last, not whatever the
         user actually chose.
         """
@@ -2456,7 +2456,7 @@ class CredentialPool:
                     entry = synced
                     cleared_any = True
             # For openai-codex entries, same pattern: the user may have
-            # re-authed via `hermes model` / `hermes auth` after a 429/401,
+            # re-authed via `numbers model` / `numbers auth` after a 429/401,
             # leaving fresh tokens on disk while the pool entry is still
             # frozen behind last_error_reset_at (can be hours in the
             # future for ChatGPT weekly windows).
@@ -2469,7 +2469,7 @@ class CredentialPool:
                     cleared_any = True
             # For xai-oauth singleton-seeded entries, identical pattern:
             # an entry frozen as exhausted may simply be holding stale
-            # tokens that another process (or a fresh `hermes model` ->
+            # tokens that another process (or a fresh `numbers model` ->
             # xAI Grok OAuth login) has since rotated in auth.json.
             if (self.provider == "xai-oauth"
                     and entry.source == "device_code"
@@ -2481,7 +2481,7 @@ class CredentialPool:
             if entry.last_status == STATUS_DEAD:
                 # Manual DEAD credentials get pruned after a 24h quiet window
                 # so the pool doesn't accumulate dead entries forever.  The
-                # user can always re-add via ``hermes auth add``.  Singleton-
+                # user can always re-add via ``numbers auth add``.  Singleton-
                 # seeded DEAD entries are kept so the audit trail (label,
                 # last_error_reason, timestamps) stays visible — pruning them
                 # would just be undone by ``_seed_from_singletons`` on the
@@ -2492,7 +2492,7 @@ class CredentialPool:
                         _label = entry.label or entry.id[:8]
                         logger.warning(
                             "credential pool: pruning DEAD manual entry %s "
-                            "(reason=%s, age=%.1fh) — re-add via `hermes auth add %s`",
+                            "(reason=%s, age=%.1fh) — re-add via `numbers auth add %s`",
                             _label,
                             entry.last_error_reason or "unknown",
                             (now - dead_at) / 3600.0,
@@ -3120,7 +3120,7 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
     auth_store = _load_auth_store()
 
     # Shared suppression gate — used at every upsert site so
-    # `hermes auth remove <provider> <N>` is stable across all source types.
+    # `numbers auth remove <provider> <N>` is stable across all source types.
     try:
         from hermes_cli.auth import is_source_suppressed as _is_suppressed
     except ImportError:
@@ -3139,7 +3139,7 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
         except ImportError:
             pass
 
-        # API-key vs OAuth is a user-visible choice at `hermes setup` ("Claude
+        # API-key vs OAuth is a user-visible choice at `numbers setup` ("Claude
         # Pro/Max subscription" vs "Anthropic API key").  The signal that the
         # user picked the API-key path is: ANTHROPIC_API_KEY set in the env,
         # AND no OAuth env vars set — `save_anthropic_api_key()` writes the
@@ -3154,7 +3154,7 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
         # explicitly opted into the API-key path are explicitly opting OUT of
         # that masquerade.  Prefer ~/.hermes/.env over os.environ for the
         # same reason `_seed_from_env` does — that's the authoritative file
-        # that `hermes setup` writes.
+        # that `numbers setup` writes.
         _env_file = load_env()
 
         def _env_val(key: str) -> str:
@@ -3229,7 +3229,7 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
             active_sources.add("device_code")
             # Prefer a user-supplied label embedded in the singleton state
             # (set by persist_nous_credentials(label=...) when the user ran
-            # `hermes auth add nous --label <name>`).  Fall back to the
+            # `numbers auth add nous --label <name>`).  Fall back to the
             # auto-derived token fingerprint for logins that didn't supply one.
             custom_label = str(state.get("label") or "").strip()
             seeded_label = custom_label or label_from_token(
@@ -3283,7 +3283,7 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
             # `gh auth token` subprocess spawn.  resolve_copilot_token()
             # shells out (~30ms), and the exchange retries 3x with backoff
             # (~35s worst case); a user who suppressed every copilot source
-            # (hermes auth remove copilot gh_cli) must not pay either on
+            # (numbers auth remove copilot gh_cli) must not pay either on
             # every pool load (model picker open, /model, agent startup).
             # Enumerating the full source space here matches what
             # credential_sources._remove_copilot_gh suppresses, so an
@@ -3379,7 +3379,7 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
     elif provider == "minimax-oauth":
         # MiniMax OAuth tokens live in ~/.hermes/auth.json providers.minimax-oauth.
         # Seed the pool so `/auth list` reflects the logged-in state and the
-        # standard `hermes auth remove minimax-oauth <N>` flow works.
+        # standard `numbers auth remove minimax-oauth <N>` flow works.
         # Use refresh_if_expiring=False equivalent: resolve_minimax_oauth_runtime_credentials
         # always refreshes on expiry, so instead read raw state here to avoid
         # surprise network calls during provider discovery.
@@ -3419,7 +3419,7 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
             logger.debug("MiniMax OAuth token seed failed: %s", exc)
 
     elif provider == "openai-codex":
-        # Respect user suppression — `hermes auth remove openai-codex` marks
+        # Respect user suppression — `numbers auth remove openai-codex` marks
         # the device_code source as suppressed so it won't be re-seeded from
         # the Hermes auth store.  Without this gate the removal is instantly
         # undone on the next load_pool() call.
@@ -3433,7 +3433,7 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
         # single-use, so sharing them with Codex CLI / VS Code causes
         # refresh_token_reused race failures.  Users who want to adopt
         # existing Codex CLI credentials get a one-time, explicit prompt
-        # via `hermes auth openai-codex`.
+        # via `numbers auth openai-codex`.
         if isinstance(tokens, dict) and tokens.get("access_token"):
             active_sources.add("device_code")
             custom_label = str(state.get("label") or "").strip()
@@ -3453,10 +3453,10 @@ def _seed_from_singletons(provider: str, entries: List[PooledCredential]) -> Tup
             )
 
     elif provider == "xai-oauth":
-        # When the user logs in via ``hermes model`` -> xAI Grok OAuth,
+        # When the user logs in via ``numbers model`` -> xAI Grok OAuth,
         # tokens are written to the auth.json singleton
         # (``providers["xai-oauth"]``).  Surface them in the pool too so
-        # ``hermes auth list`` reflects the logged-in state and so the pool
+        # ``numbers auth list`` reflects the logged-in state and so the pool
         # is the single source of truth for refresh during runtime resolution.
         state = _load_provider_state(auth_store, "xai-oauth")
         tokens = state.get("tokens") if isinstance(state, dict) else None
@@ -3534,7 +3534,7 @@ def _warn_env_ingestion_once(provider: str, env_var: str) -> None:
     logger.warning(
         "Ingested %s from environment into the %s credential pool — this "
         "enables %s spend. Remove the key or run "
-        "hermes auth remove %s <n> to suppress.",
+        "numbers auth remove %s <n> to suppress.",
         env_var,
         provider,
         "OpenRouter" if provider == "openrouter" else provider,
@@ -3565,7 +3565,7 @@ def _seed_from_env(provider: str, entries: List[PooledCredential]) -> Tuple[bool
     # credential refresh share one implementation.
     _get_env_prefer_dotenv = get_env_prefer_dotenv
 
-    # Honour user suppression — `hermes auth remove <provider> <N>` for an
+    # Honour user suppression — `numbers auth remove <provider> <N>` for an
     # env-seeded credential marks the env:<VAR> source as suppressed so it
     # won't be re-seeded from the user's shell environment or ~/.hermes/.env.
     # Without this gate the removal is silently undone on the next
@@ -3684,7 +3684,7 @@ def _prune_stale_seeded_entries(
         # var this call must NOT delete the on-disk entry for every other
         # process — that destructive read is the bug behind #9331. Only prune
         # an env source when ``prune_env_sources`` is explicitly requested
-        # (e.g. an `hermes auth` command that confirmed the source is gone).
+        # (e.g. an `numbers auth` command that confirmed the source is gone).
         if entry.source.startswith("env:"):
             return prune_env_sources
         # File-backed singletons (device-code OAuth, claude_code) and Hermes

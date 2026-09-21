@@ -40,7 +40,7 @@ Config schema (``~/.hermes/config.yaml``)::
           # optional regex, honored for pre/post_tool_call only:
           matcher: "terminal|delegate_task"
           timeout: 10       # per-attempt seconds, clamped to [1, 60]
-          name: ci-notify   # optional label for logs / `hermes hooks list`
+          name: ci-notify   # optional label for logs / `numbers hooks list`
 
 Wire format (POST body)::
 
@@ -215,7 +215,7 @@ def register_from_config(cfg: Optional[Dict[str, Any]]) -> List[WebhookTarget]:
 
 def iter_configured_targets(cfg: Optional[Dict[str, Any]]) -> List[WebhookTarget]:
     """Parse ``hooks.outbound`` without registering anything.
-    Used by ``hermes hooks list``."""
+    Used by ``numbers hooks list``."""
     if not isinstance(cfg, dict):
         return []
     hooks_cfg = cfg.get("hooks")

@@ -1,4 +1,4 @@
-"""Implementation of the ``hermes bundles`` CLI subcommand.
+"""Implementation of the ``numbers bundles`` CLI subcommand.
 
 Mirrors the structure of ``hermes_cli/skills_hub.py`` but for skill
 bundles. Bundles are tiny YAML files that name a set of skills to load
@@ -33,7 +33,7 @@ from agent.skill_bundles import (
 
 
 def _console() -> Console:
-    # Bind to stderr so piping `hermes bundles list | grep …` doesn't
+    # Bind to stderr so piping `numbers bundles list | grep …` doesn't
     # garble rich markup with table styling. Tables and headings still
     # render to a terminal; pure text columns survive piping.
     return Console()
@@ -45,7 +45,7 @@ def _cmd_list(args) -> None:
     if not bundles:
         c.print(
             f"[dim]No bundles installed yet. Create one with:\n"
-            f"  hermes bundles create <name> --skill skill1 --skill skill2[/]\n"
+            f"  numbers bundles create <name> --skill skill1 --skill skill2[/]\n"
             f"Bundles directory: [bold]{_bundles_dir()}[/]"
         )
         return
@@ -165,7 +165,7 @@ def _cmd_reload(args) -> None:
 
 
 def register_cli(subparser) -> None:
-    """Build the ``hermes bundles`` argparse tree.
+    """Build the ``numbers bundles`` argparse tree.
 
     Called from ``hermes_cli/main.py`` where it owns the top-level
     ``bundles`` subparser. Keeping registration here means the bundles
@@ -195,7 +195,7 @@ def register_cli(subparser) -> None:
     )
     p_create.add_argument(
         "--description", "-d", default="",
-        help="Human-readable description shown in /help and `hermes bundles list`",
+        help="Human-readable description shown in /help and `numbers bundles list`",
     )
     p_create.add_argument(
         "--instruction", "-i", default="",
@@ -221,7 +221,7 @@ def register_cli(subparser) -> None:
 
 
 def bundles_command(args) -> None:
-    """Dispatch ``hermes bundles <subcommand>`` to the right handler."""
+    """Dispatch ``numbers bundles <subcommand>`` to the right handler."""
     handler = getattr(args, "_bundles_handler", None)
     if handler is None:
         # No subcommand given — default to list.

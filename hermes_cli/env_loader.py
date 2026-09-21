@@ -32,7 +32,7 @@ _WARNED_UTF32_PATHS: set[str] = set()
 
 # Map of env-var name → source label ("bitwarden", etc.) for credentials
 # that were injected by an external secret source during load_hermes_dotenv().
-# Used by setup / `hermes model` flows to label detected credentials so
+# Used by setup / `numbers model` flows to label detected credentials so
 # users understand WHERE a key came from when their .env doesn't contain it
 # directly (otherwise the "credentials detected ✓" line looks identical to
 # the .env case and they don't know Bitwarden is wired up).
@@ -337,7 +337,7 @@ def _sanitize_loaded_credentials() -> None:
             "rich-text editor, or web page that substituted lookalike\n"
             "  Unicode glyphs for ASCII letters. If authentication fails "
             "(e.g. \"API key not valid\"), re-copy the key from the\n"
-            "  provider's dashboard and run `hermes setup` (or edit the "
+            "  provider's dashboard and run `numbers setup` (or edit the "
             ".env file in a plain-text editor).",
             file=sys.stderr,
         )
@@ -562,7 +562,7 @@ def load_hermes_dotenv(
     #    invocation that must not import optional secret-manager libraries
     #    (Bitwarden → cryptography → ``_rust.pyd``) into the process that
     #    replaces that same environment on Windows (#73381, #86735).
-    # 2. A fresh ``hermes update`` retry just completed a deferred dependency
+    # 2. A fresh ``numbers update`` retry just completed a deferred dependency
     #    install before importing this module.  Do not remap native
     #    secret-source dependencies in that same updater process or the
     #    self-lock preflight will recreate the marker and exit 2 again.
@@ -577,7 +577,7 @@ def load_hermes_dotenv(
     # config.yaml is the documented source of truth for terminal.* settings,
     # but the dotenv loads above run with override=True — so a stale
     # TERMINAL_ENV=docker left in ~/.hermes/.env (e.g. written by an older
-    # `hermes setup` before the user switched terminal.backend in config.yaml)
+    # `numbers setup` before the user switched terminal.backend in config.yaml)
     # silently wins again on every reload. Startup launchers bridge
     # config→env once, but long-lived processes (gateway per-turn reload,
     # cron standalone runs) call load_hermes_dotenv() repeatedly and used to
@@ -736,7 +736,7 @@ def _apply_external_secret_sources(home_path: Path) -> None:
         # user-supplied and might have the same copy-paste corruption as
         # a manually edited .env (see #6843).
         _sanitize_loaded_credentials()
-        # Remember where each var came from so setup / `hermes model`
+        # Remember where each var came from so setup / `numbers model`
         # flows can label detected credentials with "(from Bitwarden)" /
         # "(from 1Password)" — otherwise users see "credentials ✓" with
         # no hint the value came from a vault rather than .env.

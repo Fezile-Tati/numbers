@@ -87,7 +87,7 @@ def _warn_memory_provider_unavailable(name: str, reason: str = "") -> None:
     logger.warning(
         "Memory provider %r is selected but reports unavailable — external memory "
         "is disabled for this session (built-in memory still works). Check the "
-        "provider's credentials/config with 'hermes memory status'. Note: "
+        "provider's credentials/config with 'numbers memory status'. Note: "
         "systemd/gateway services do not inherit ~/.hermes/.env automatically; set "
         "any required variables in the service environment.%s",
         name,
@@ -303,7 +303,7 @@ def _build_codex_gpt5_autoraise_notice(
         f"ℹ Codex {model} caps context at {cap}, so auto-compaction was raised "
         f"to {to_pct}% (from {from_pct}%) to use more of the window before "
         f"summarizing.\n"
-        f"  Opt back out: hermes config set compression.codex_gpt55_autoraise false"
+        f"  Opt back out: numbers config set compression.codex_gpt55_autoraise false"
     )
 
 
@@ -1466,13 +1466,13 @@ def init_agent(
                     raise RuntimeError(
                         f"Provider '{_explicit}' is set in config.yaml but no API key "
                         f"was found. Set the {_env_hint} environment "
-                        f"variable, or switch to a different provider with `hermes model`."
+                        f"variable, or switch to a different provider with `numbers model`."
                     )
                 if not getattr(agent, "_fallback_activated", False):
                     # No provider configured — reject with a clear message.
                     raise RuntimeError(
-                        "No LLM provider configured. Run `hermes model` to "
-                        "select a provider, or run `hermes setup` for first-time "
+                        "No LLM provider configured. Run `numbers model` to "
+                        "select a provider, or run `numbers setup` for first-time "
                         "configuration."
                     )
         # Bedrock GPT-5.5/5.6 use Bedrock Mantle's OpenAI Responses endpoint.

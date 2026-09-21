@@ -1,4 +1,4 @@
-"""CLI subcommand: `hermes curator <subcommand>`.
+"""CLI subcommand: `numbers curator <subcommand>`.
 
 Thin shell around agent/curator.py and tools/skill_usage.py. Renders a status
 table, triggers a run, pauses/resumes, and pins/unpins skills.
@@ -61,7 +61,7 @@ def _print_unmanaged_summary() -> None:
     print(f"  foreground-created  {foreground}")
     print(
         "  never auto-staled or archived — "
-        "`hermes curator adopt <name>` hands one over"
+        "`numbers curator adopt <name>` hands one over"
     )
 
 
@@ -258,17 +258,17 @@ def _cmd_run(args) -> int:
                 f"reactivated={auto.get('reactivated', 0)}"
             )
     if not synchronous:
-        print("llm pass running in background — check `hermes curator status` later")
+        print("llm pass running in background — check `numbers curator status` later")
     if dry:
         if synchronous:
             print(
                 "dry-run: no changes applied. Read the report with "
-                "`hermes curator status` and run `hermes curator run` (no flag) to apply."
+                "`numbers curator status` and run `numbers curator run` (no flag) to apply."
             )
         else:
             print(
                 "dry-run: no changes applied. When the report lands, read it with "
-                "`hermes curator status` and run `hermes curator run` (no flag) to apply."
+                "`numbers curator status` and run `numbers curator run` (no flag) to apply."
             )
     return 0
 
@@ -299,7 +299,7 @@ def _cmd_pin(args) -> int:
         print(
             f"curator: could not pin '{args.skill}' — the skill is not "
             "curation-eligible (protected built-in or external). "
-            "`hermes curator list-unmanaged` shows which skills the curator tracks."
+            "`numbers curator list-unmanaged` shows which skills the curator tracks."
         )
         return 1
     if not skill_usage.is_curator_managed(args.skill):
@@ -311,7 +311,7 @@ def _cmd_pin(args) -> int:
         print(
             f"curator: pinned '{args.skill}' (recorded; this skill is unmanaged "
             "— auto-transitions never consider it. Run "
-            f"`hermes curator adopt {args.skill}` to put it under curator "
+            f"`numbers curator adopt {args.skill}` to put it under curator "
             "management)"
         )
         return 0
@@ -366,8 +366,8 @@ def _cmd_list_unmanaged(args) -> int:
             f"last_activity={last:14s}  "
             f"({why})"
         )
-    print("\nadopt one with `hermes curator adopt <name>`, "
-          "or all with `hermes curator adopt --all-unmanaged`")
+    print("\nadopt one with `numbers curator adopt <name>`, "
+          "or all with `numbers curator adopt --all-unmanaged`")
     return 0
 
 
@@ -448,7 +448,7 @@ def _cmd_archive(args) -> int:
     if skill_usage.get_record(args.skill).get("pinned"):
         print(
             f"curator: '{args.skill}' is pinned — unpin first with "
-            f"`hermes curator unpin {args.skill}`"
+            f"`numbers curator unpin {args.skill}`"
         )
         return 1
     tok = skill_ledger.set_ledger_actor("user")
@@ -591,8 +591,8 @@ def _cmd_ledger(args) -> int:
             f"{r.get('skill', '?')}{extra}"
         )
     print(
-        "\nRoll back a single mutation with `hermes curator rollback <id>`; "
-        "whole-tree snapshots remain available via `hermes curator rollback --list`."
+        "\nRoll back a single mutation with `numbers curator rollback <id>`; "
+        "whole-tree snapshots remain available via `numbers curator rollback --list`."
     )
     return 0
 
@@ -697,7 +697,7 @@ def _cmd_rollback(args) -> int:
         if entry is None:
             print(
                 f"curator: no ledger entry '{entry_id}'. "
-                "See `hermes curator ledger` for entry ids, or use "
+                "See `numbers curator ledger` for entry ids, or use "
                 "`--id <snapshot>` for whole-tree snapshot rollback."
             )
             return 1
@@ -735,7 +735,7 @@ def _cmd_rollback(args) -> int:
         if not rows:
             print(
                 "curator: no snapshots exist yet. Take one with "
-                "`hermes curator backup` or wait for the next curator run."
+                "`numbers curator backup` or wait for the next curator run."
             )
         else:
             print(
@@ -1003,12 +1003,12 @@ def register_cli(parent: argparse.ArgumentParser) -> None:
     p_rollback = subs.add_parser(
         "rollback",
         help="Restore ~/.hermes/skills/ from a curator snapshot, or a single "
-             "mutation by ledger entry id (see `hermes curator ledger`)",
+             "mutation by ledger entry id (see `numbers curator ledger`)",
     )
     p_rollback.add_argument(
         "entry_id", nargs="?", default=None,
         help="Ledger entry id for single-mutation rollback (from "
-             "`hermes curator ledger`). Omit for whole-tree snapshot rollback.",
+             "`numbers curator ledger`). Omit for whole-tree snapshot rollback.",
     )
     p_rollback.add_argument(
         "--list", action="store_true",
@@ -1061,7 +1061,7 @@ def register_cli(parent: argparse.ArgumentParser) -> None:
 
 def cli_main(argv=None) -> int:
     """Standalone entry (also usable by hermes_cli.main fallthrough)."""
-    parser = argparse.ArgumentParser(prog="hermes curator")
+    parser = argparse.ArgumentParser(prog="numbers curator")
     register_cli(parser)
     args = parser.parse_args(argv)
     fn = getattr(args, "func", None)
