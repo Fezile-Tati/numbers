@@ -36,6 +36,8 @@ ALLOWED_SCOPES = (
     "stories:read", "stories:write",
     "blogs:read", "blogs:write",
     "bible-notes:read", "bible-notes:write",
+    # Read-only services, enforced by RequireScope on their routes.
+    "profile:read", "favpages:read",
 )
 
 
