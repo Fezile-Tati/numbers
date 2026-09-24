@@ -563,7 +563,7 @@ def run_logout(print_fn: Callable = print, hub_base: Optional[str] = None,
              f"Restart NUMBERS to fully disable the angel tools.")
     print_fn(f"{YELLOW}Intersession could not be reached, so this device's token is "
              f"still active on your account.{RST}")
-    print_fn("  Revoke it at Settings -> Agent Tokens to disable it everywhere.")
+    print_fn("  Revoke it in Intersession at Settings -> Agent Tokens to disable it everywhere.")
 
 
 def has_agent_token() -> bool:
@@ -584,6 +584,30 @@ def has_agent_token() -> bool:
         return (home_dir / "agent-token").read_text(encoding="utf-8").strip() != ""
     except Exception:
         return False
+
+
+def print_no_token_notice(print_fn: Callable = print) -> None:
+    """The message a bare `/sign-in` / `numbers signin` prints when this
+    install has no Angel token yet, instead of starting the browser-code
+    dance.
+
+    That dance needs a human: a browser to open, a code to read off a page,
+    a code to paste back. None of that exists when the CLI is being driven by
+    an agent rather than typed at directly -- the browser never opens, there
+    is nothing to read the code from, and a pasted code arrives as an
+    ordinary chat message the agent has no way to recognise as an answer.
+    A pasted token has none of those requirements, so it is the one path
+    offered here. See `run_sign_in` for the still-working browser flow a
+    human at a real terminal can reach by minting a token in Intersession and
+    running `numbers connect` -- this notice is what a *sign-in attempt*
+    without a token shows before it would otherwise try to start that flow.
+    """
+    print_fn("")
+    print_fn(f"{RED}No token found.{RST} Generate a token in Intersession "
+             f"(Settings -> Agent Tokens), then run: "
+             f"{BOLD}numbers connect <TOKEN>{RST} in your terminal.")
+    print_fn("Once that is done, run /sign-in again.")
+    print_fn("")
 
 
 def offer_connect(print_fn: Callable = print) -> int:
@@ -657,6 +681,12 @@ def main(argv: Optional[list] = None) -> int:
             return 0
         if args.action == "connect":
             return persist_agent_token(args.token)
+        # A bare `numbers signin` (no code yet) with nothing on file: point at
+        # `connect` instead of starting a browser flow this non-interactive
+        # entry point cannot finish reading a code back from.
+        if not args.token.strip() and not has_agent_token():
+            print_no_token_notice()
+            return 1
         return 0 if run_sign_in(code=args.token) else 1
     except home.NotANumbersHome as e:
         print(f"[numbers] {e}", file=__import__("sys").stderr)

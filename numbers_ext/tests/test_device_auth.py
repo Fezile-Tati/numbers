@@ -479,3 +479,51 @@ def test_the_offer_entry_point_never_fails_the_launcher(tmp_path, monkeypatch):
     monkeypatch.setenv("NUMBERS_HOME", str(tmp_path))  # no marker
     monkeypatch.delenv("NUMBERS_AGENT_TOKEN", raising=False)
     assert da.main(["offer"]) == 0
+
+
+# --- a bare sign-in with no token points at `connect`, not a browser -------
+# A browser-code sign-in needs a human: something to open the link, read the
+# code, paste it back. None of that exists when this CLI is being driven by
+# an agent -- the old behaviour just hung or printed a link nobody could use.
+
+def test_main_signin_with_no_token_prints_the_notice_not_a_browser_flow(
+    marked_home, monkeypatch, capsys
+):
+    monkeypatch.delenv("NUMBERS_AGENT_TOKEN", raising=False)
+    opened = []
+    monkeypatch.setattr(da.webbrowser, "open", lambda url: opened.append(url))
+    assert da.main(["signin"]) == 1
+    assert opened == []
+    out = capsys.readouterr().out
+    assert "No token found" in out
+    assert "numbers connect <TOKEN>" in out
+
+
+def test_main_signin_with_a_code_still_tries_to_resume(marked_home, monkeypatch):
+    """A code means the user is finishing a flow started elsewhere (the
+    browser authorize page) -- the no-token gate must not swallow it."""
+    monkeypatch.delenv("NUMBERS_AGENT_TOKEN", raising=False)
+    resumed = []
+    monkeypatch.setattr(da, "run_sign_in",
+                        lambda code="": resumed.append(code) or None)
+    assert da.main(["signin", "CODE1234"]) == 1
+    assert resumed == ["CODE1234"]
+
+
+def test_main_signin_with_an_existing_token_still_reaches_run_sign_in(
+    marked_home, monkeypatch
+):
+    (marked_home / "agent-token").write_text("tok-abc\n", encoding="utf-8")
+    called = []
+    monkeypatch.setattr(da, "run_sign_in", lambda code="": called.append(1) or None)
+    da.main(["signin"])
+    assert called == [1]
+
+
+def test_print_no_token_notice_names_both_ways_in():
+    out = []
+    da.print_no_token_notice(print_fn=lambda *a: out.append(" ".join(map(str, a))))
+    screen = "\n".join(out)
+    assert "No token found" in screen
+    assert "numbers connect <TOKEN>" in screen
+    assert "/sign-in" in screen
