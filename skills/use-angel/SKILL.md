@@ -50,11 +50,15 @@ user retype it.
 
 ## When no angel_* tool exists
 
-That means NUMBERS is not connected to Intersession. Say exactly this, then answer the rest
-of the question with your ordinary tools:
+That means NUMBERS is not connected to Intersession. The angel tools are loaded once, at
+startup -- connecting a token while NUMBERS is already running does nothing until NUMBERS is
+restarted. Do not guess which step is missing (down server vs. no token vs. not restarted
+yet); say exactly this, then answer the rest of the question with your ordinary tools:
 
-> NUMBERS is not connected to Intersession right now, so I can't read your stories.
-> Start the Intersession server, then run `numbers connect <token>` (get a token at
-> https://127.0.0.1:3000/settings under Agent Tokens).
+> NUMBERS is not connected to Intersession right now, so I can't read your stories, blogs,
+> pages or profile. If you have not already: start Intersession, generate a token at
+> Settings -> Agent Tokens, and run `numbers connect <TOKEN>`. Either way, **restart
+> NUMBERS** -- the angel tools only load at startup, so connecting a token without
+> restarting looks identical to not being connected at all.
 
 Do not treat this as an error condition. Every other NUMBERS capability still works.

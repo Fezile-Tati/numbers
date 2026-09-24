@@ -4180,10 +4180,21 @@ class CLICommandsMixin:
         argument form works in every front-end, including that one.
         """
         from cli import _cprint
-        from numbers_ext.device_auth import run_sign_in
+        from numbers_ext.device_auth import (has_agent_token, print_no_token_notice,
+                                             run_sign_in)
 
         parts = (command or "").strip().split(maxsplit=1)
         code = parts[1].strip() if len(parts) > 1 else ""
+        # A bare /sign-in with nothing on file would otherwise open a browser
+        # and ask for a code pasted back -- useless when this command is being
+        # driven by an agent rather than typed at directly, since nothing here
+        # can open that browser or recognise the code coming back as an
+        # answer rather than a chat message. Point at `numbers connect`
+        # instead. `/sign-in <code>` (resuming a flow someone else already
+        # started at the browser) is unaffected -- it carries its own code.
+        if not code and not has_agent_token():
+            print_no_token_notice(print_fn=_cprint)
+            return
         try:
             run_sign_in(print_fn=_cprint, prompt_fn=self._numbers_prompt, code=code)
         except (EOFError, KeyboardInterrupt):
