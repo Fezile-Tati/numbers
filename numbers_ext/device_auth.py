@@ -282,9 +282,39 @@ def _env_upsert(path: Path, key: str, value: str) -> None:
             os.unlink(tmp)
 
 
-def _persist(token: str) -> None:
+def _revoke_old_token_if_replaced(tok_path: Path, new_token: str,
+                                  print_fn: Callable,
+                                  hub_base: Optional[str] = None) -> None:
+    """Best-effort revoke of whatever token this device previously held,
+    before it is overwritten. Enforces "one active token per device" as a
+    server-side fact, not just a local one -- without this, connecting a
+    new token (device flow OR a pasted one) left the old one live on the
+    account indefinitely.
+
+    Best-effort and silent-on-failure by design: an old token that is
+    already expired/invalid, or an unreachable Intersession, must never
+    block saving the NEW token -- that would turn a routine reconnect into
+    a hard failure.
+    """
+    try:
+        old = tok_path.read_text(encoding="utf-8").strip()
+    except Exception:
+        return  # nothing on file yet -- first connect, nothing to revoke
+    new = (new_token or "").strip()
+    if not old or old == new:
+        return
+    base = (hub_base or _hub_base()).rstrip("/")
+    try:
+        _post(f"{base}/api/settings/agent-tokens/revoke", {"revoke": True}, token=old)
+    except AuthError:
+        print_fn(f"{DIM}(Could not revoke the previous device token -- it may "
+                 f"already be invalid, or Intersession is unreachable.){RST}")
+
+
+def _persist(token: str, print_fn: Callable = print) -> None:
     home_dir = home.require_numbers_home()
     tok = home_dir / "agent-token"
+    _revoke_old_token_if_replaced(tok, token, print_fn)
     fd, tmp = tempfile.mkstemp(dir=str(home_dir), prefix=".agent-token-", suffix=".tmp")
     with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
         fh.write(token + "\n")
@@ -315,7 +345,7 @@ def persist_agent_token(token: str, print_fn: Callable = print) -> int:
                  "then run: numbers connect <TOKEN>")
         return 1
     home.require_numbers_home()  # never write a Numbers token into a non-Numbers home
-    _persist(token)
+    _persist(token, print_fn=print_fn)
     print_fn(f"{BOLD_GREEN}Token saved.{RST} Restart NUMBERS to pick up the angel tools.")
     return 0
 
@@ -433,7 +463,7 @@ def _finish(base: str, request_id: str, code: str,
     if not token:
         print_fn(f"{RED}Sign-in failed: unexpected response from Intersession.{RST}")
         return None
-    _persist(token)
+    _persist(token, print_fn=print_fn)
     _clear_pending()
     print_fn(f"{BOLD_GREEN}Signed in{RST} as {payload.get('label', 'your account')}. "
              f"Restart NUMBERS to pick up the angel tools.")

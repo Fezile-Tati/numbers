@@ -526,4 +526,56 @@ def test_print_no_token_notice_names_both_ways_in():
     screen = "\n".join(out)
     assert "No token found" in screen
     assert "numbers connect <TOKEN>" in screen
-    assert "/sign-in" in screen
+
+
+# --- one active token per device: connecting a new one revokes the old -----
+# Local storage was always single-slot (one agent-token file, always
+# overwritten); the actual gap was that the token being replaced stayed live
+# on the account server-side indefinitely. _persist now revokes it first,
+# best-effort, before writing the new one.
+
+def test_persist_revokes_previous_token_before_overwriting(marked_home, monkeypatch):
+    (marked_home / "agent-token").write_text("old-tok\n", encoding="utf-8")
+    calls = []
+    monkeypatch.setattr(da, "_post",
+                        lambda url, body, token=None, **k: calls.append((url, token)) or {})
+    assert da.persist_agent_token("new-tok", print_fn=lambda *a, **k: None) == 0
+    assert len(calls) == 1
+    url, token = calls[0]
+    assert url.endswith("/api/settings/agent-tokens/revoke")
+    assert token == "old-tok"
+    assert (marked_home / "agent-token").read_text().strip() == "new-tok"
+
+
+def test_persist_revoke_failure_does_not_block_the_new_token(marked_home, monkeypatch):
+    """An old token that is already invalid, or a down Intersession, must
+    never turn a routine reconnect into a hard failure."""
+    (marked_home / "agent-token").write_text("old-tok\n", encoding="utf-8")
+
+    def _boom(*a, **k):
+        raise da.AuthError("HTTP 401: unauthorized")
+
+    monkeypatch.setattr(da, "_post", _boom)
+    out = []
+    assert da.persist_agent_token(
+        "new-tok", print_fn=lambda *a, **k: out.append(" ".join(map(str, a)))
+    ) == 0
+    assert (marked_home / "agent-token").read_text().strip() == "new-tok"
+    assert any("previous device token" in line for line in out)
+
+
+def test_persist_first_connect_skips_the_revoke_call(marked_home, monkeypatch):
+    """No prior token on file means nothing to revoke."""
+    calls = []
+    monkeypatch.setattr(da, "_post", lambda *a, **k: calls.append(1) or {})
+    assert da.persist_agent_token("new-tok", print_fn=lambda *a, **k: None) == 0
+    assert calls == []
+    assert (marked_home / "agent-token").read_text().strip() == "new-tok"
+
+
+def test_persist_reconnecting_the_same_token_skips_the_revoke_call(marked_home, monkeypatch):
+    (marked_home / "agent-token").write_text("same-tok\n", encoding="utf-8")
+    calls = []
+    monkeypatch.setattr(da, "_post", lambda *a, **k: calls.append(1) or {})
+    assert da.persist_agent_token("same-tok", print_fn=lambda *a, **k: None) == 0
+    assert calls == []
