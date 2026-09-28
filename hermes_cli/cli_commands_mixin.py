@@ -4180,25 +4180,108 @@ class CLICommandsMixin:
         argument form works in every front-end, including that one.
         """
         from cli import _cprint
-        from numbers_ext.device_auth import (has_agent_token, print_no_token_notice,
-                                             run_sign_in)
+        from numbers_ext.device_auth import (has_agent_token, persist_agent_token,
+                                             print_no_token_notice, run_sign_in)
 
         parts = (command or "").strip().split(maxsplit=1)
         code = parts[1].strip() if len(parts) > 1 else ""
-        # A bare /sign-in with nothing on file would otherwise open a browser
-        # and ask for a code pasted back -- useless when this command is being
-        # driven by an agent rather than typed at directly, since nothing here
-        # can open that browser or recognise the code coming back as an
-        # answer rather than a chat message. Point at `numbers connect`
-        # instead. `/sign-in <code>` (resuming a flow someone else already
-        # started at the browser) is unaffected -- it carries its own code.
+        # A bare /sign-in with nothing on file used to just print a notice and
+        # stop, leaving the user to run a SEPARATE `numbers connect <TOKEN>`
+        # and come back. Ask for the token right here instead -- same prompt
+        # channel run_sign_in already uses, so it works from the TUI and from
+        # the slash worker alike. `/sign-in <code>` (resuming a flow someone
+        # else already started at the browser) is unaffected -- it carries
+        # its own code and skips this branch entirely.
         if not code and not has_agent_token():
-            print_no_token_notice(print_fn=_cprint)
+            try:
+                pasted = (self._numbers_prompt(
+                    "No Angel token yet. Paste one from Intersession (Settings -> "
+                    "Agent Tokens) to connect now, or press Enter to see how: "
+                ) or "").strip()
+            except (EOFError, KeyboardInterrupt):
+                _cprint("Sign-in cancelled.")
+                return
+            if not pasted:
+                print_no_token_notice(print_fn=_cprint)
+                return
+            # A pasted token is already a complete credential -- chaining into
+            # the browser device-code flow right after would be surprising
+            # and burns a device-code request for nothing, so this stops here
+            # rather than falling through to run_sign_in below.
+            if persist_agent_token(pasted, print_fn=_cprint) == 0:
+                self._numbers_reload_mcp_after_connect()
             return
         try:
-            run_sign_in(print_fn=_cprint, prompt_fn=self._numbers_prompt, code=code)
+            result = run_sign_in(print_fn=_cprint, prompt_fn=self._numbers_prompt, code=code)
         except (EOFError, KeyboardInterrupt):
             _cprint("Sign-in cancelled.")
+            return
+        if result:
+            self._numbers_reload_mcp_after_connect()
+
+    def _handle_connect_command(self, command: str) -> None:
+        """Handle /connect -- paste an existing Agent Token without the
+        device-code browser dance. Reachable mid-session, and by an agent
+        driving the CLI (which /sign-in's browser flow cannot be)."""
+        from cli import _cprint
+        from numbers_ext.device_auth import persist_agent_token
+
+        parts = (command or "").strip().split(maxsplit=1)
+        token = parts[1].strip() if len(parts) > 1 else ""
+        if not token:
+            try:
+                token = (self._numbers_prompt(
+                    "Paste your agent token (Settings -> Agent Tokens): "
+                ) or "").strip()
+            except (EOFError, KeyboardInterrupt):
+                _cprint("Connect cancelled.")
+                return
+        if not token:
+            _cprint("No token given. Create one at Settings -> Agent Tokens, "
+                     "then run: /connect <TOKEN>")
+            return
+        if persist_agent_token(token, print_fn=_cprint) == 0:
+            self._numbers_reload_mcp_after_connect()
+
+    def _handle_token_command(self, command: str) -> None:
+        """Handle /token -- report whether an Angel token is on file.
+
+        A plain status check: no network call, no prompt. has_agent_token()
+        only inspects NUMBERS_AGENT_TOKEN / $NUMBERS_HOME/agent-token, the
+        same precedence the MCP child uses, so this can't disagree with
+        whether the angel tools are actually configured to authenticate.
+        It says nothing about whether that token is still *valid* on the
+        server -- a revoked token still reads "Active" here, since checking
+        that would mean a network round trip on every status check; /sign-in
+        or /connect will surface a rejection if the server disagrees.
+        """
+        from cli import _cprint
+        from numbers_ext.ansi import BOLD_GREEN, RST, YELLOW
+        from numbers_ext.device_auth import has_agent_token
+
+        if has_agent_token():
+            _cprint(f"Token: {BOLD_GREEN}Active{RST}")
+        else:
+            _cprint(f"Token: {YELLOW}Not detected{RST}")
+            _cprint("Connect one with: /connect <TOKEN>  (from Settings -> Agent Tokens)")
+
+    def _numbers_reload_mcp_after_connect(self) -> None:
+        """Best-effort MCP reload right after a token is stored, so the angel
+        tools become available in THIS session instead of requiring a
+        restart. Calls the same reload path /reload-mcp uses
+        (shutdown_mcp_servers + discover_mcp_tools) directly, bypassing its
+        interactive confirmation -- the user just took an explicit
+        sign-in/connect action one command ago, so re-asking adds a prompt
+        without adding safety. Must never make sign-in/connect look like it
+        failed: the token is saved either way, restart or /reload-mcp remain
+        a fallback if this doesn't fire."""
+        from cli import _cprint
+
+        try:
+            self._reload_mcp()
+        except Exception:
+            _cprint("(Could not auto-reload the angel tools; run /reload-mcp "
+                     "or restart NUMBERS to pick them up.)")
 
     def _handle_logout_command(self, command: str) -> None:
         """Handle /logout -- revoke and clear the Angel token."""
@@ -4209,6 +4292,14 @@ class CLICommandsMixin:
             run_logout(print_fn=_cprint)
         except (EOFError, KeyboardInterrupt):
             _cprint("Logout cancelled.")
+        # Chat is for signed-in users only: close any open chat (its poller
+        # stops with it) once the token is gone.
+        if getattr(self, "_numbers_chat_target", None) is not None:
+            from numbers_ext import chat
+
+            if not chat.has_token():
+                self._numbers_close_chat_quietly()
+                _cprint("  Chat closed: you are signed out.")
 
     def _handle_reset_command(self, command: str) -> None:
         """Handle /reset -- two levels: light, and a full factory reset.
@@ -4464,6 +4555,888 @@ class CLICommandsMixin:
         import os
 
         os._exit(0)  # noqa: PLR1722 -- immediate, post-VACUUM; nothing to flush
+
+    # --- Intersession chat (numbers_ext/chat.py) ------------------------------
+    # State: self._numbers_chat_target = {"kind": "dm"|"group", "id", "label",
+    # "owner_id", "seen": set(ids), "texts": {id: text}}. While it is set, plain
+    # input is sent to that chat instead of the agent (cli.py process_loop hook)
+    # and the prompt shows where it goes.
+    # Pickers reuse the /model picker's "model" stage, which already provides
+    # type-to-filter, arrow keys, Back and Cancel; state["numbers_list"] marks
+    # it as ours and cli.py hands the Enter key to _numbers_list_picker_select.
+    # Inside the TUI's slash worker that picker cannot be drawn, so
+    # _numbers_pick falls back to the numbered menu of _numbers_choice.
+    #
+    # Chat is for signed-in users only: every chat command starts with
+    # _numbers_require_signin(), and an auth failure from the server (expired or
+    # revoked token, missing scope) closes any open chat.
+
+    def _numbers_require_signin(self) -> bool:
+        """True when this device has an Intersession token; else says so."""
+        from cli import _cprint
+        from numbers_ext import chat
+
+        if chat.has_token():
+            return True
+        self._numbers_close_chat_quietly()
+        _cprint(f"  ✗ {chat.SIGN_IN_MESSAGE}")
+        return False
+
+    def _numbers_close_chat_quietly(self) -> None:
+        if getattr(self, "_numbers_chat_target", None) is not None:
+            self._numbers_chat_target = None
+            invalidate = getattr(self, "_invalidate", None)
+            if invalidate:
+                invalidate(min_interval=0.0)
+
+    def _numbers_chat_call(self, fn, *args, **kwargs):
+        """Run a numbers_ext.chat call, printing its error instead of raising."""
+        from cli import _cprint
+        from numbers_ext.chat import ChatAuthError, ChatError
+
+        try:
+            return True, fn(*args, **kwargs)
+        except ChatAuthError as exc:
+            # Signed out, expired or revoked: no chat stays open without access.
+            self._numbers_close_chat_quietly()
+            _cprint(f"  ✗ {exc}")
+        except ChatError as exc:
+            _cprint(f"  ✗ {exc}")
+        except Exception as exc:  # never let a chat failure kill the loop
+            _cprint(f"  ✗ Chat failed: {exc}")
+        return False, None
+
+    @staticmethod
+    def _numbers_arg(command: str) -> str:
+        parts = (command or "").strip().split(maxsplit=1)
+        return parts[1].strip() if len(parts) > 1 else ""
+
+    def _numbers_pick(self, title: str, hint: str, entries: list, on_select) -> None:
+        """A picker that works in the classic CLI and in the TUI.
+
+        Classic CLI: the filterable /model-style picker (on_select runs on a
+        worker thread). TUI slash worker: a numbered menu over the remote
+        prompt channel, answered in one round trip.
+        """
+        if not entries:
+            return
+        if not self._numbers_remote_active():
+            self._numbers_open_list_picker(title, hint, entries, on_select)
+            return
+        choices = [(str(i), label, "") for i, (label, _value) in enumerate(entries)]
+        picked = self._numbers_choice(title=title, detail=hint, choices=choices)
+        if picked is None:
+            return
+        on_select(entries[int(picked)][1])
+
+    def _numbers_open_list_picker(self, title: str, hint: str, entries: list, on_select) -> None:
+        """Open a filterable picker. ``entries`` is [(label, value)];
+        ``on_select(value)`` runs on a worker thread after Enter."""
+        if not entries:
+            return
+        self._capture_modal_input_snapshot()
+        self._model_picker_state = {
+            "stage": "model",
+            "provider_data": {"name": title},
+            "model_list": [label for label, _ in entries],
+            "selected": 0,
+            "filter": "",
+            "numbers_list": {"title": title, "hint": hint,
+                             "values": [value for _, value in entries],
+                             "on_select": on_select},
+        }
+        self._invalidate(min_interval=0.0)
+
+    def _numbers_list_picker_labels(self, state, title, hint):
+        """cli.py renderer hook: our title/hint instead of the model picker's."""
+        nl = (state or {}).get("numbers_list")
+        if not nl:
+            return title, hint
+        query = state.get("filter", "") or ""
+        total = len(state.get("model_list") or [])
+        if query:
+            shown = len(state.get("_filtered_pairs") or [])
+            return nl["title"], f"Search: {query}▏  ({shown}/{total} — type to narrow, Backspace to clear)"
+        if nl["hint"].endswith("type to search"):
+            return nl["title"], nl["hint"]  # the hint is already the full line
+        return nl["title"], f"{nl['hint']} ({total}) — type to search"
+
+    def _numbers_list_picker_select(self) -> None:
+        """cli.py Enter hook for our pickers (runs on the UI thread)."""
+        import threading
+
+        state = self._model_picker_state or {}
+        nl = state.get("numbers_list") or {}
+        pairs = state.get("_filtered_pairs")
+        if pairs is None:
+            pairs = list(enumerate(state.get("model_list") or []))
+        idx = state.get("selected", 0)
+        self._close_model_picker()
+        if idx >= len(pairs):
+            return  # "← Back" or "Cancel"
+        value = nl["values"][pairs[idx][0]]
+        on_select = nl.get("on_select")
+        if on_select:
+            # Network calls stay off the UI thread.
+            threading.Thread(target=on_select, args=(value,), daemon=True).start()
+
+    def _numbers_chat_prompt_prefix(self) -> list:
+        """cli.py prompt hook: shows where plain input is going."""
+        target = getattr(self, "_numbers_chat_target", None)
+        if not target:
+            return []
+        tag = "@" + target["label"] if target["kind"] == "dm" else "#" + target["label"]
+        return [("class:prompt-working", f"[{tag}] ")]
+
+    def _numbers_chat_intercept(self, text: str) -> bool:
+        """cli.py process_loop hook: send plain input to the open chat."""
+        from cli import _cprint
+        from numbers_ext import chat
+
+        # A slash command (e.g. /blueprint) handed this text to the agent as a
+        # seed; cli.py's seed-bypass hook flags it so it never reaches a chat.
+        if getattr(self, "_numbers_skip_chat_route", False):
+            self._numbers_skip_chat_route = False
+            return False
+        target = getattr(self, "_numbers_chat_target", None)
+        if not target:
+            return False
+        if not chat.has_token():
+            # Signed out with a chat open: close it and swallow the line --
+            # it was typed for the chat, so it must not go to the agent either.
+            self._numbers_close_chat_quietly()
+            _cprint(f"  ✗ {chat.SIGN_IN_MESSAGE} Your message was not sent.")
+            return True
+        text = (text or "").strip()
+        if not text:
+            return True
+        # This hook runs before cli.py expands "[Pasted text #N: …]" markers.
+        if "[Pasted text #" in text:
+            text = (self._expand_paste_references(text) or "").strip()
+        if target["kind"] == "dm":
+            ok, msg = self._numbers_chat_call(chat.dm_send, target["id"], text)
+        else:
+            ok, msg = self._numbers_chat_call(chat.group_send, target["id"], text)
+        if ok:
+            if (msg or {}).get("id"):
+                target.setdefault("seen", set()).add(msg["id"])
+                target.setdefault("texts", {})[msg["id"]] = msg.get("text", text)
+            _cprint(chat.format_message(msg or {"mine": True, "text": text}))
+        return True
+
+    def _numbers_enter_chat(self, kind: str, chat_id: str, label: str, owner_id: str = "") -> None:
+        from cli import _cprint
+
+        target = {"kind": kind, "id": chat_id, "label": label, "owner_id": owner_id,
+                  "seen": set(), "texts": {}}
+        where = f"DM with @{label}" if kind == "dm" else f"group chat {label}"
+        if self._numbers_remote_active():
+            # The TUI has no chat mode (plain input always goes to the agent),
+            # so show the conversation once and point at the classic CLI.
+            _cprint(f"\n  💬 {where}:")
+            self._numbers_print_recent(target)
+            _cprint("  To chat live (type to send), open the classic CLI: numbers --cli")
+            return
+        self._numbers_chat_target = target
+        _cprint(f"\n  💬 Opened {where}. Type to send · /list-messages · /exit-chat")
+        self._numbers_print_recent()
+        self._numbers_start_chat_poll(target)
+        self._invalidate(min_interval=0.0)
+
+    def _numbers_fetch_recent(self, target: dict) -> list:
+        from numbers_ext import chat
+
+        if target["kind"] == "dm":
+            return chat.dm_read(target["id"])
+        return chat.group_messages(target["id"])
+
+    def _numbers_print_recent(self, target: "dict | None" = None) -> None:
+        from cli import _cprint
+        from numbers_ext import chat
+
+        target = target or getattr(self, "_numbers_chat_target", None)
+        if not target:
+            _cprint("  No chat open. Use /chat to pick a group or associate.")
+            return
+        ok, msgs = self._numbers_chat_call(self._numbers_fetch_recent, target)
+        if not ok:
+            return
+        # Whatever is on screen now is not "new" to the poller.
+        seen = target.setdefault("seen", set())
+        texts = target.setdefault("texts", {})
+        for m in msgs or []:
+            if m.get("id"):
+                seen.add(m["id"])
+                texts[m["id"]] = m.get("text", "")
+        if not msgs:
+            _cprint("  (no messages yet)")
+            return
+        shown = msgs[-chat.RECENT_LIMIT:]
+        # /load-more pages back from the oldest message on screen.
+        target["oldest_id"] = shown[0].get("id", "")
+        for m in shown:
+            _cprint(chat.format_message(m))
+
+    def _numbers_start_chat_poll(self, target: dict) -> None:
+        """Print other people's new (and edited) messages while ``target`` stays open.
+
+        The thread is bound to this target dict: /exit-chat, a delete, a
+        sign-out or opening another chat replaces self._numbers_chat_target
+        and the thread ends at its next check."""
+        import threading
+        import time
+        from cli import _cprint
+        from numbers_ext import chat
+
+        def _still_open() -> bool:
+            return getattr(self, "_numbers_chat_target", None) is target
+
+        def _loop() -> None:
+            warned = False
+            while True:
+                time.sleep(chat.POLL_SECONDS)
+                if not _still_open():
+                    return
+                try:
+                    msgs = self._numbers_fetch_recent(target)
+                except chat.ChatAuthError as exc:
+                    if _still_open():
+                        self._numbers_close_chat_quietly()
+                        _cprint(f"  ✗ {exc} The chat was closed.")
+                    return
+                except Exception as exc:
+                    if not warned:  # once per outage, not every 10 s
+                        _cprint(f"  ✗ Could not check for new messages: {exc}")
+                        warned = True
+                    continue
+                warned = False
+                if not _still_open():
+                    return  # closed while the request was in flight
+                seen = target.setdefault("seen", set())
+                texts = target.setdefault("texts", {})
+                for m in msgs:
+                    mid = m.get("id")
+                    if not mid:
+                        continue
+                    text = m.get("text", "")
+                    if mid in seen:
+                        # Already shown: print it again only if someone edited it.
+                        if texts.get(mid) != text:
+                            texts[mid] = text
+                            if not m.get("mine"):
+                                _cprint(chat.format_message(m))
+                        continue
+                    seen.add(mid)
+                    texts[mid] = text
+                    if not m.get("mine"):
+                        _cprint(chat.format_message(m))
+
+        threading.Thread(target=_loop, name="numbers-chat-poll", daemon=True).start()
+
+    def _numbers_require_group(self):
+        from cli import _cprint
+
+        target = getattr(self, "_numbers_chat_target", None)
+        if not target or target["kind"] != "group":
+            _cprint("  Open a group chat first with /chat or /groups.")
+            return None
+        return target
+
+    def _numbers_group_detail(self, target: dict):
+        """The open group's details (members, my_role), or None after an error."""
+        from numbers_ext import chat
+
+        ok, detail = self._numbers_chat_call(chat.group_read, target["id"])
+        return detail if ok else None
+
+    # --- /chat: one picker for invites, groups and associates -----------------
+
+    def _handle_chat_command(self, command: str) -> None:
+        from concurrent.futures import ThreadPoolExecutor
+        from cli import _cprint
+        from numbers_ext import chat
+
+        if not self._numbers_require_signin():
+            return
+        query = self._numbers_arg(command)
+        # One call first, so a signed-out or expired device reports once
+        # instead of three times.
+        ok, invites = self._numbers_chat_call(chat.list_invitations)
+        if not ok:
+            return
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            f_groups = pool.submit(self._numbers_chat_call, chat.list_groups, query)
+            f_people = pool.submit(self._numbers_chat_call, chat.list_associates, query)
+            f_inbox = pool.submit(self._numbers_chat_call, chat.dm_inbox)
+        groups = f_groups.result()[1] or []
+        people = f_people.result()[1] or []
+        threads = f_inbox.result()[1] or []
+
+        q = query.lower()
+        if q:
+            invites = [i for i in invites or [] if q in (i.get("group_name") or "").lower()
+                       or q in (i.get("inviter") or "").lower()]
+        unread = {t.get("with_username") for t in threads if t.get("unread")}
+
+        entries = [(chat.invite_label(i), ("invite", i)) for i in invites or []]
+        entries += [("#" + chat.group_label(g), ("group", g)) for g in groups]
+        entries += [(("● " if a.get("username") in unread else "") + chat.associate_label(a), ("dm", a))
+                    for a in people]
+        if not entries:
+            _cprint(f"  Nothing matches \"{query}\"." if query else
+                    "  No group chats or associates yet. Create a group with /group-create <name>.")
+            return
+        summary = []
+        if invites:
+            summary.append(f"{len(invites)} invite{'s' if len(invites) != 1 else ''}")
+        if unread:
+            summary.append(f"{len(unread)} unread DM{'s' if len(unread) != 1 else ''}")
+        if summary:
+            _cprint("  " + " · ".join(summary))
+
+        def _open(value) -> None:
+            kind, obj = value
+            if kind == "invite":
+                self._numbers_answer_invite(obj)
+            elif kind == "group":
+                self._numbers_enter_chat("group", obj["id"], obj.get("name") or obj["id"], obj.get("owner_id", ""))
+            else:
+                self._numbers_enter_chat("dm", obj["username"], obj["username"])
+
+        self._numbers_pick("💬 Chat", "Invites, group-chats (#), associates (@), type to search", entries, _open)
+
+    def _numbers_answer_invite(self, inv: dict) -> None:
+        from cli import _cprint
+        from numbers_ext import chat
+
+        name = inv.get("group_name") or "this group chat"
+        choices = [
+            ("accept", "Accept", f"Join {name}"),
+            ("decline", "Decline", "Say no; the invite is removed"),
+            ("later", "Not now", "Keep the invite for later"),
+        ]
+        answer = self._numbers_choice(title=f"Join {name}?",
+                                      detail=f"@{inv.get('inviter') or '?'} invited you.",
+                                      choices=choices)
+        if answer not in ("accept", "decline"):
+            _cprint("  Invite kept for later (/invites).")
+            return
+        ok, data = self._numbers_chat_call(chat.respond_invitation, inv["id"], answer == "accept")
+        if not ok:
+            return
+        if answer == "decline":
+            _cprint(f"  Declined the invite to {name}.")
+            return
+        group = (data or {}).get("group") or {}
+        _cprint(f"  ✓ Joined {group.get('name') or name}.")
+        if group.get("id"):
+            self._numbers_enter_chat("group", group["id"], group.get("name") or name, group.get("owner_id", ""))
+
+    def _handle_invites_command(self, command: str) -> None:
+        from cli import _cprint
+        from numbers_ext import chat
+
+        if not self._numbers_require_signin():
+            return
+        ok, invites = self._numbers_chat_call(chat.list_invitations)
+        if not ok:
+            return
+        if not invites:
+            _cprint("  No pending group chat invites.")
+            return
+        self._numbers_pick("✉ Group chat invites", "Select an invite to answer",
+                           [(chat.invite_label(i), i) for i in invites], self._numbers_answer_invite)
+
+    def _handle_inbox_command(self, command: str) -> None:
+        from cli import _cprint
+        from numbers_ext import chat
+
+        if not self._numbers_require_signin():
+            return
+        ok, threads = self._numbers_chat_call(chat.dm_inbox)
+        if not ok:
+            return
+        if not threads:
+            _cprint("  No direct messages yet. Start one with /chat.")
+            return
+        unread = sum(1 for t in threads if t.get("unread"))
+        entries = []
+        if unread:
+            entries.append((f"✓ Mark all read ({unread} unread)", None))
+        entries += [(chat.inbox_label(t), t.get("with_username")) for t in threads]
+
+        def _open(username) -> None:
+            if username is None:
+                if self._numbers_chat_call(chat.dm_read_all)[0]:
+                    _cprint("  ✓ All direct messages marked read.")
+                return
+            self._numbers_enter_chat("dm", username, username)
+
+        self._numbers_pick("📥 Inbox", "Select a conversation", entries, _open)
+
+    # --- existing chat commands -----------------------------------------------
+
+    def _handle_list_associates_command(self, command: str) -> None:
+        from cli import _cprint
+        from numbers_ext import chat
+
+        if not self._numbers_require_signin():
+            return
+        query = self._numbers_arg(command)
+        ok, people = self._numbers_chat_call(chat.list_associates, query)
+        if not ok:
+            return
+        if not people:
+            _cprint("  No associates found." if query else
+                    "  You have no associates yet (friends, followers or followings).")
+            return
+        self._numbers_pick(
+            "💬 Associates", "Select someone to message",
+            [(chat.associate_label(a), a["username"]) for a in people],
+            lambda username: self._numbers_enter_chat("dm", username, username),
+        )
+
+    def _handle_groups_command(self, command: str) -> None:
+        from cli import _cprint
+        from numbers_ext import chat
+
+        if not self._numbers_require_signin():
+            return
+        query = self._numbers_arg(command)
+        ok, groups = self._numbers_chat_call(chat.list_groups, query)
+        if not ok:
+            return
+        if not groups:
+            _cprint("  No group chats found." if query else
+                    "  You are not in any group chats. Create one with /group-create <name>.")
+            return
+        self._numbers_pick(
+            "👥 Group chats", "Select a group chat",
+            [(chat.group_label(g), g) for g in groups],
+            lambda g: self._numbers_enter_chat("group", g["id"], g.get("name") or g["id"], g.get("owner_id", "")),
+        )
+
+    def _handle_list_messages_command(self, command: str) -> None:
+        if not self._numbers_require_signin():
+            return
+        self._numbers_print_recent()
+
+    def _handle_exit_chat_command(self, command: str) -> None:
+        from cli import _cprint
+
+        target = getattr(self, "_numbers_chat_target", None)
+        self._numbers_chat_target = None
+        if target:
+            what = "DM with @" if target["kind"] == "dm" else "group chat "
+            _cprint(f"  Closed {what}{target['label']}. Typing goes to the agent again.")
+        else:
+            _cprint("  No chat open.")
+        self._invalidate(min_interval=0.0)
+
+    def _handle_group_create_command(self, command: str) -> None:
+        from cli import _cprint
+        from numbers_ext import chat
+
+        if not self._numbers_require_signin():
+            return
+        name = self._numbers_arg(command)
+        if not name:
+            _cprint("  Usage: /group-create <name>")
+            return
+        description = ""
+        for _attempt in range(3):
+            description = (self._numbers_prompt(
+                f"Group description, one sentence, max {chat.GROUP_DESC_MAX} chars (Enter = skip): "
+            ) or "").strip()
+            problem = chat.check_group_description(description)
+            if not problem:
+                break
+            _cprint(f"  {problem}")
+        else:
+            _cprint("  Group not created.")
+            return
+        ok, group = self._numbers_chat_call(chat.group_create, name, None, description)
+        if not ok:
+            return
+        _cprint(f"  ✓ Created group chat {group.get('name', name)}.")
+        if group.get("description"):
+            _cprint(f"    {group['description']}")
+        self._numbers_enter_chat("group", group["id"], group.get("name", name), group.get("owner_id", ""))
+        self._numbers_pick_member_to_invite(group["id"])
+
+    def _numbers_pick_member_to_invite(self, chat_id: str, query: str = "") -> None:
+        """Associates picker that invites the pick, then reopens until Done.
+
+        Invited associates join when they accept (/chat or /invites)."""
+        from cli import _cprint
+        from numbers_ext import chat
+
+        ok, people = self._numbers_chat_call(chat.list_associates, query)
+        if not ok or not people:
+            return
+        ok, detail = self._numbers_chat_call(chat.group_read, chat_id)
+        members = {m.get("user_id") for m in (detail or {}).get("members") or []} if ok else set()
+        choices = [("✓ Done", None)] + [
+            (chat.associate_label(a), a["username"]) for a in people if a.get("user_id") not in members
+        ]
+        if len(choices) == 1:
+            _cprint("  All your associates are already in this group.")
+            return
+
+        def _invite(username):
+            if username is None:
+                return
+            ok, res = self._numbers_chat_call(chat.group_invite, chat_id, username)
+            if ok:
+                if (res or {}).get("already_member"):
+                    _cprint(f"  @{username} is already a member.")
+                elif (res or {}).get("already_invited"):
+                    _cprint(f"  @{username} already has a pending invite.")
+                else:
+                    _cprint(f"  ✓ Invite sent to @{username}.")
+            self._numbers_pick_member_to_invite(chat_id, query)
+
+        self._numbers_pick("👥 Invite members", "Pick an associate to invite, or Done", choices, _invite)
+
+    def _handle_group_add_command(self, command: str) -> None:
+        from cli import _cprint
+
+        if not self._numbers_require_signin():
+            return
+        target = self._numbers_require_group()
+        if not target:
+            return
+        detail = self._numbers_group_detail(target)
+        if detail is None:
+            return
+        if detail.get("my_role") not in ("owner", "admin"):
+            _cprint("  Only the group owner or an admin can invite members.")
+            return
+        self._numbers_pick_member_to_invite(target["id"], self._numbers_arg(command))
+
+    def _handle_group_remove_command(self, command: str) -> None:
+        from cli import _cprint
+        from numbers_ext import chat
+
+        if not self._numbers_require_signin():
+            return
+        target = self._numbers_require_group()
+        if not target:
+            return
+        detail = self._numbers_group_detail(target)
+        if detail is None:
+            return
+        role = detail.get("my_role")
+        if role not in ("owner", "admin"):
+            _cprint("  Only the group owner or an admin can remove members.")
+            return
+        owner = detail.get("owner_id")
+        members = [m for m in detail.get("members") or [] if m.get("user_id") != owner]
+        if role == "admin":  # admins manage regular members only
+            members = [m for m in members if m.get("role") != "admin"]
+        if not members:
+            _cprint("  Nobody you can remove.")
+            return
+
+        def _remove(username):
+            if self._numbers_chat_call(chat.group_remove_member, target["id"], username)[0]:
+                _cprint(f"  ✓ Removed @{username}.")
+
+        self._numbers_pick(
+            "👥 Remove a member", "Select a member to remove",
+            [(chat.member_label(m), m["username"]) for m in members], _remove,
+        )
+
+    def _handle_group_admins_command(self, command: str) -> None:
+        from cli import _cprint
+        from numbers_ext import chat
+
+        if not self._numbers_require_signin():
+            return
+        target = self._numbers_require_group()
+        if not target:
+            return
+        detail = self._numbers_group_detail(target)
+        if detail is None:
+            return
+        if detail.get("my_role") != "owner":
+            _cprint("  Only the group owner can choose admins.")
+            return
+        owner = detail.get("owner_id")
+        members = [m for m in detail.get("members") or []
+                   if m.get("user_id") != owner and m.get("status") == "active" and not m.get("blocked")]
+        if not members:
+            _cprint("  Invite some members first (/group-add).")
+            return
+        admins = sum(1 for m in members if m.get("role") == "admin")
+
+        def _toggle(m):
+            new = "member" if m.get("role") == "admin" else "admin"
+            ok, _ = self._numbers_chat_call(chat.group_set_role, target["id"], m["username"], new)
+            if ok:
+                verb = "is now an admin" if new == "admin" else "is no longer an admin"
+                _cprint(f"  ✓ @{m['username']} {verb}.")
+
+        self._numbers_pick(
+            "🛡 Group admins", f"Admins: {admins}/2 — select a member to promote or demote",
+            [(chat.member_label(m), m) for m in members], _toggle,
+        )
+
+    def _handle_group_members_command(self, command: str) -> None:
+        from cli import _cprint
+        from numbers_ext import chat
+
+        if not self._numbers_require_signin():
+            return
+        target = self._numbers_require_group()
+        if not target:
+            return
+        detail = self._numbers_group_detail(target)
+        if detail is None:
+            return
+        members = [m for m in detail.get("members") or [] if m.get("status") == "active"]
+        order = {"owner": 0, "admin": 1}
+        members.sort(key=lambda m: (order.get(m.get("role"), 2), (m.get("username") or "").lower()))
+        _cprint(f"  {target['label']} — {len(members)} member{'s' if len(members) != 1 else ''}:")
+        for m in members:
+            _cprint("    " + chat.member_label(m) + ("  (blocked)" if m.get("blocked") else ""))
+
+    def _handle_group_leave_command(self, command: str) -> None:
+        from cli import _cprint
+        from numbers_ext import chat
+
+        if not self._numbers_require_signin():
+            return
+        target = self._numbers_require_group()
+        if not target:
+            return
+        choices = [
+            ("leave", "Leave", f"Leave {target['label']}. You need a new invite to come back."),
+            ("cancel", "Cancel", "Stay in the group chat."),
+        ]
+        answer = self._numbers_choice(title=f"Leave group chat {target['label']}?", detail="", choices=choices)
+        if answer != "leave":
+            _cprint("  Leave cancelled.")
+            return
+        if self._numbers_chat_call(chat.group_leave, target["id"])[0]:
+            _cprint(f"  ✓ Left {target['label']}.")
+            self._numbers_close_chat_quietly()
+
+    def _handle_group_rename_command(self, command: str) -> None:
+        from cli import _cprint
+        from numbers_ext import chat
+
+        if not self._numbers_require_signin():
+            return
+        target = self._numbers_require_group()
+        if not target:
+            return
+        name = self._numbers_arg(command)
+        if not name:
+            _cprint("  Usage: /group-rename <new name>")
+            return
+        ok, group = self._numbers_chat_call(chat.group_rename, target["id"], name)
+        if ok:
+            target["label"] = group.get("name", name)
+            _cprint(f"  ✓ Renamed to {target['label']}.")
+            self._invalidate(min_interval=0.0)
+
+    def _handle_group_delete_command(self, command: str) -> None:
+        from cli import _cprint
+        from numbers_ext import chat
+
+        if not self._numbers_require_signin():
+            return
+        target = self._numbers_require_group()
+        if not target:
+            return
+        choices = [
+            ("once", "Delete", f"Delete {target['label']} for every member. This cannot be undone."),
+            ("cancel", "Cancel", "Keep the group chat."),
+        ]
+        answer = self._numbers_choice(
+            title=f"Delete group chat {target['label']}?",
+            detail="Only the owner can delete a group chat.",
+            choices=choices,
+        )
+        if answer != "once":
+            _cprint("  Delete cancelled.")
+            return
+        if self._numbers_chat_call(chat.group_delete, target["id"])[0]:
+            _cprint(f"  ✓ Deleted {target['label']}.")
+            self._numbers_close_chat_quietly()
+
+    # --- /msg-edit and /msg-delete: your own messages in the open chat --------
+
+    def _numbers_pick_own_message(self, title: str, on_select) -> None:
+        self._numbers_pick_message(title, on_select, only_mine=True)
+
+    def _numbers_pick_message(self, title: str, on_select, only_mine: bool = False,
+                              group_only: bool = False) -> None:
+        """Picker over the open chat's recent messages, newest first.
+        ``on_select(target, message)`` runs after Enter."""
+        from cli import _cprint
+        from numbers_ext import chat
+
+        if not self._numbers_require_signin():
+            return
+        if group_only:
+            target = self._numbers_require_group()
+            if not target:
+                return
+        else:
+            target = getattr(self, "_numbers_chat_target", None)
+            if not target:
+                _cprint("  Open a chat first with /chat.")
+                return
+        ok, msgs = self._numbers_chat_call(self._numbers_fetch_recent, target)
+        if not ok:
+            return
+        picks = [m for m in msgs or [] if m.get("id") and (m.get("mine") or not only_mine)]
+        if not picks:
+            _cprint("  None of the recent messages here are yours." if only_mine
+                    else "  No messages here yet.")
+            return
+        picks.reverse()  # newest first: the latest message is the likely pick
+        hint = "Select one of your messages" if only_mine else "Select a message"
+
+        def _label(m) -> str:
+            who = "you" if m.get("mine") else "@" + (m.get("from") or "?")
+            return f"{who}: {chat.message_label(m)}"
+
+        self._numbers_pick(title, hint, [(_label(m), m) for m in picks],
+                           lambda m: on_select(target, m))
+
+    def _handle_msg_edit_command(self, command: str) -> None:
+        from cli import _cprint
+        from numbers_ext import chat
+
+        def _edit(target, m) -> None:
+            _cprint(f"  Editing: {m.get('text', '')}")
+            text = (self._numbers_prompt("New text (Enter = cancel): ") or "").strip()
+            if not text:
+                _cprint("  Edit cancelled.")
+                return
+            fn = chat.dm_edit if target["kind"] == "dm" else chat.group_edit_message
+            ok, _ = self._numbers_chat_call(fn, m["id"], text)
+            if ok:
+                target.setdefault("texts", {})[m["id"]] = text
+                _cprint(chat.format_message(dict(m, text=text, edited=True)))
+
+        self._numbers_pick_own_message("✏ Edit a message", _edit)
+
+    def _handle_msg_delete_command(self, command: str) -> None:
+        from cli import _cprint
+        from numbers_ext import chat
+
+        def _delete(target, m) -> None:
+            choices = [
+                ("delete", "Delete", "Remove it for everyone in this chat."),
+                ("cancel", "Cancel", "Keep the message."),
+            ]
+            answer = self._numbers_choice(title="Delete this message?",
+                                          detail=chat.message_label(m), choices=choices)
+            if answer != "delete":
+                _cprint("  Delete cancelled.")
+                return
+            fn = chat.dm_delete if target["kind"] == "dm" else chat.group_delete_message
+            if self._numbers_chat_call(fn, m["id"])[0]:
+                _cprint("  ✓ Message deleted.")
+
+        self._numbers_pick_own_message("🗑 Delete a message", _delete)
+
+    # --- /reply, /replies, /mentions, /load-more: group chats only -------------
+
+    def _handle_reply_command(self, command: str) -> None:
+        from cli import _cprint
+        from numbers_ext import chat
+
+        def _reply(target, m) -> None:
+            who = "yourself" if m.get("mine") else "@" + (m.get("from") or "?")
+            _cprint(f"  Replying to {who}: {chat.message_label(m)}")
+            text = (self._numbers_prompt(f"Reply to {who} (Enter = cancel): ") or "").strip()
+            if not text:
+                _cprint("  Reply cancelled.")
+                return
+            ok, msg = self._numbers_chat_call(chat.group_send, target["id"], text, m["id"])
+            if ok:
+                if (msg or {}).get("id"):
+                    target.setdefault("seen", set()).add(msg["id"])
+                    target.setdefault("texts", {})[msg["id"]] = msg.get("text", text)
+                _cprint(chat.format_message(msg or {"mine": True, "text": text}))
+
+        self._numbers_pick_message("↪ Reply to a message", _reply, group_only=True)
+
+    def _handle_replies_command(self, command: str) -> None:
+        from cli import _cprint
+        from numbers_ext import chat
+
+        def _show(target, m) -> None:
+            ok, res = self._numbers_chat_call(chat.group_replies, m["id"])
+            if not ok:
+                return
+            parent, replies = res
+            _cprint(chat.format_message(parent or m))
+            if not replies:
+                _cprint("    No replies yet.")
+                return
+            _cprint(f"    {len(replies)} repl{'y' if len(replies) == 1 else 'ies'}:")
+            for r in replies:
+                # The parent is printed above; don't repeat it on every reply.
+                _cprint("  " + chat.format_message(dict(r, reply_preview=None)))
+
+        self._numbers_pick_message("💬 Replies to a message", _show, group_only=True)
+
+    def _handle_mentions_command(self, command: str) -> None:
+        from cli import _cprint
+        from numbers_ext import chat
+
+        if not self._numbers_require_signin():
+            return
+        target = self._numbers_require_group()
+        if not target:
+            return
+        ok, msgs = self._numbers_chat_call(chat.group_messages, target["id"], 50)
+        if not ok:
+            return
+        hits = [m for m in msgs or [] if m.get("mentions_you") and not m.get("mine")]
+        if not hits:
+            _cprint("  No recent messages mention you.")
+            return
+        _cprint(f"  🔔 {len(hits)} recent message{'s' if len(hits) != 1 else ''} mention you:")
+        for m in hits:
+            _cprint(chat.format_message(m))
+
+    def _handle_load_more_command(self, command: str) -> None:
+        from cli import _cprint
+        from numbers_ext import chat
+
+        if not self._numbers_require_signin():
+            return
+        target = self._numbers_require_group()
+        if not target:
+            return
+        oldest = target.get("oldest_id")
+        if not oldest:
+            # Nothing shown yet: the first page is just the recent messages.
+            self._numbers_print_recent(target)
+            return
+        ok, msgs = self._numbers_chat_call(chat.group_messages, target["id"],
+                                           chat.RECENT_LIMIT, oldest)
+        if not ok:
+            return
+        if not msgs:
+            _cprint("  No older messages.")
+            return
+        target["oldest_id"] = msgs[0].get("id") or oldest
+        seen = target.setdefault("seen", set())
+        texts = target.setdefault("texts", {})
+        _cprint(f"  ── {len(msgs)} earlier message{'s' if len(msgs) != 1 else ''} ──")
+        for m in msgs:
+            if m.get("id"):
+                seen.add(m["id"])
+                texts[m["id"]] = m.get("text", "")
+            _cprint(chat.format_message(m))
     # NUMBERS-FORK-END: mixin-handlers
 
     def _persist_wake_word_enabled(self, enabled: bool):

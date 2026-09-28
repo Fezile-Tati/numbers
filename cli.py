@@ -11931,6 +11931,8 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         if not state:
             return
         selected = state.get("selected", 0)
+        if state.get("numbers_list") is not None:  # NUMBERS-CHAT picker-select
+            return self._numbers_list_picker_select()
         stage = state.get("stage")
         if stage == "provider":
             providers = state.get("providers") or []
@@ -13132,12 +13134,58 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         # NUMBERS-FORK-BEGIN: cli-dispatch
         elif canonical == "sign-in":
             self._handle_sign_in_command(cmd_original)
+        elif canonical == "connect":
+            self._handle_connect_command(cmd_original)
+        elif canonical == "token":
+            self._handle_token_command(cmd_original)
         elif canonical == "logout":
             self._handle_logout_command(cmd_original)
         elif canonical == "reset":
             self._handle_reset_command(cmd_original)
         elif canonical == "import-hermes":
             self._handle_import_hermes_command(cmd_original)
+        elif canonical == "list-associates":
+            self._handle_list_associates_command(cmd_original)
+        elif canonical == "groups":
+            self._handle_groups_command(cmd_original)
+        elif canonical == "list-messages":
+            self._handle_list_messages_command(cmd_original)
+        elif canonical == "exit-chat":
+            self._handle_exit_chat_command(cmd_original)
+        elif canonical == "group-create":
+            self._handle_group_create_command(cmd_original)
+        elif canonical == "group-rename":
+            self._handle_group_rename_command(cmd_original)
+        elif canonical == "group-delete":
+            self._handle_group_delete_command(cmd_original)
+        elif canonical == "group-add":
+            self._handle_group_add_command(cmd_original)
+        elif canonical == "group-remove":
+            self._handle_group_remove_command(cmd_original)
+        elif canonical == "chat":
+            self._handle_chat_command(cmd_original)
+        elif canonical == "inbox":
+            self._handle_inbox_command(cmd_original)
+        elif canonical == "invites":
+            self._handle_invites_command(cmd_original)
+        elif canonical == "load-more":
+            self._handle_load_more_command(cmd_original)
+        elif canonical == "reply":
+            self._handle_reply_command(cmd_original)
+        elif canonical == "replies":
+            self._handle_replies_command(cmd_original)
+        elif canonical == "mentions":
+            self._handle_mentions_command(cmd_original)
+        elif canonical == "msg-edit":
+            self._handle_msg_edit_command(cmd_original)
+        elif canonical == "msg-delete":
+            self._handle_msg_delete_command(cmd_original)
+        elif canonical == "group-admins":
+            self._handle_group_admins_command(cmd_original)
+        elif canonical == "group-members":
+            self._handle_group_members_command(cmd_original)
+        elif canonical == "group-leave":
+            self._handle_group_leave_command(cmd_original)
         # NUMBERS-FORK-END: cli-dispatch
 
         elif canonical == "busy":
@@ -18112,7 +18160,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             return _state_fragment("class:prompt-working", "⚕")
         if self._voice_mode:
             return _state_fragment("class:voice-prompt", "🎤")
-        return [("class:prompt", symbol)]
+        return self._numbers_chat_prompt_prefix() + [("class:prompt", symbol)]  # NUMBERS-CHAT chat-prompt
 
     def _get_tui_prompt_text(self) -> str:
         """Return the visible prompt text for width calculations."""
@@ -20643,6 +20691,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                 else:
                     hint = "No models listed for this provider. Use Back or Cancel."
 
+            title, hint = cli_ref._numbers_list_picker_labels(state, title, hint)  # NUMBERS-CHAT picker-labels
             box_width = _panel_box_width(title, [hint] + choices, min_width=46, max_width=84)
             inner_text_width = max(8, box_width - 6)
             selected = state.get("selected", 0)
@@ -21212,10 +21261,14 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                         _seed = getattr(self, "_pending_agent_seed", None)
                         if _seed:
                             self._pending_agent_seed = None
+                            self._numbers_skip_chat_route = True  # NUMBERS-CHAT seed-bypass
                             user_input = _seed
                         else:
                             continue
                     
+                    if (not _file_drop and not is_seeded_query and isinstance(user_input, str)  # NUMBERS-CHAT chat-route
+                            and self._numbers_chat_intercept(user_input)):
+                        continue
                     # Expand paste references back to full content
                     _paste_ref_re = re.compile(r'\[Pasted text #\d+: \d+ lines \u2192 (.+?)\]')
                     paste_refs = list(_paste_ref_re.finditer(user_input)) if isinstance(user_input, str) else []

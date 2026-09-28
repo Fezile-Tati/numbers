@@ -38,6 +38,8 @@ ALLOWED_SCOPES = (
     "bible-notes:read", "bible-notes:write",
     # Read-only services, enforced by RequireScope on their routes.
     "profile:read", "favpages:read",
+    # Chat (text-only DMs and group chats).
+    "dm:read", "dm:write", "group-chat:read", "group-chat:write",
 )
 
 
