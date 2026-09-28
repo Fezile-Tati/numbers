@@ -224,3 +224,8 @@ native/fts5_cjk/*.so
 # PyInstaller work + dist tree for the vendored NUMBERS runtime
 # (scripts/build_numbers_runtime.ps1 in the pray repo regenerates it)
 /build_numbers_runtime/
+
+# The bundled runtime build itself. It is published as a GitHub Release asset
+# (tag numbers-runtime-latest), never committed: see release/README.md.
+/release/*.zip
+/release/*.zip.sha256
