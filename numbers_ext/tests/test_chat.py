@@ -33,6 +33,10 @@ class _FakeHub(BaseHTTPRequestHandler):
         self._record()
         if self.path.startswith("/api/angel/v1/dm/associates"):
             self._send(200, {"ok": True, "data": {"associates": [{"username": "deborah"}]}})
+        elif self.path.startswith("/api/angel/v1/dm/barak"):
+            self._send(200, {"ok": True, "data": {
+                "messages": [{"id": "m0", "from": "barak", "text": "old"}],
+                "has_more": "before=" not in self.path, "next_before": "m0", "read_only": True}})
         elif self.path.startswith("/api/angel/v1/group-chat/messages"):
             self._send(403, {"ok": False, "error": {"code": "not_owner",
                                                     "message": "missing required scope group-chat:read"}})
@@ -247,3 +251,39 @@ def test_labels():
     assert chat.invite_label({"group_name": "Elders", "inviter": "me"}) == "✉ Invite: Elders  from @me"
     assert chat.member_label({"username": "deborah", "role": "admin"}) == "@deborah  (admin)"
     assert "● unread" in chat.inbox_label({"with_username": "deborah", "unread": True})
+
+
+def test_dm_page_sends_before_and_returns_paging_fields(hub):
+    first = chat.dm_page("@barak")
+    assert first["has_more"] is True and first["next_before"] == "m0" and first["read_only"] is True
+    older = chat.page("dm", "barak", 50, "m0")
+    assert older["has_more"] is False
+    method, path, _ = hub.seen[-1]
+    assert method == "GET" and path.startswith("/api/angel/v1/dm/barak?") and "before=m0" in path and "limit=50" in path
+    # dm_read keeps returning just the messages.
+    assert chat.dm_read("barak") == [{"id": "m0", "from": "barak", "text": "old"}]
+
+
+def test_format_history_adds_one_separator_per_day():
+    msgs = [
+        {"id": "a", "from": "x", "text": "one", "created_at": "2026-09-21T10:00:00Z"},
+        {"id": "b", "from": "x", "text": "two", "created_at": "2026-09-21T11:00:00Z"},
+        {"id": "c", "from": "x", "text": "three", "created_at": "2026-09-23T10:00:00Z"},
+    ]
+    lines = chat.format_history(msgs)
+    separators = [line for line in lines if line.strip().startswith("──")]
+    assert len(separators) == 2
+    assert len(lines) == 5
+    # A day already announced by the previous page isn't announced again.
+    again = chat.format_history(msgs[1:], prev_ts=msgs[0]["created_at"])
+    assert len([line for line in again if line.strip().startswith("──")]) == 1
+
+
+def test_format_day_separator_handles_bad_timestamps():
+    assert chat.format_day_separator("not a time") == ""
+    assert chat.format_day_separator("2026-09-22T12:00:00Z").strip().startswith("── ")
+
+
+def test_inbox_label_marks_read_only_threads():
+    assert "(read-only)" in chat.inbox_label({"with_username": "barak", "read_only": True})
+    assert "(read-only)" not in chat.inbox_label({"with_username": "deborah"})

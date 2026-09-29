@@ -13182,6 +13182,8 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             self._handle_invites_command(cmd_original)
         elif canonical == "load-more":
             self._handle_load_more_command(cmd_original)
+        elif canonical == "history-chat":
+            self._handle_history_chat_command(cmd_original)
         elif canonical == "reply":
             self._handle_reply_command(cmd_original)
         elif canonical == "replies":

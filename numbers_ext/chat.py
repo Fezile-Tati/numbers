@@ -4,11 +4,11 @@ Talks to the hub's Angel ``dm`` and ``group-chat`` services with the user's
 own agent token (the one ``/sign-in`` stores)::
 
     GET    {hub}/api/angel/v1/dm/associates?q=     friends, followers, following
-    GET    {hub}/api/angel/v1/dm/{username}        conversation
+    GET    {hub}/api/angel/v1/dm/{username}        conversation ?limit=&before=
     POST   {hub}/api/angel/v1/dm/send              {to, text, confirmed}
     GET    {hub}/api/angel/v1/group-chat?q=        my groups
     GET    {hub}/api/angel/v1/group-chat/{id}      details + members
-    GET    {hub}/api/angel/v1/group-chat/messages  ?chat_id=&limit=
+    GET    {hub}/api/angel/v1/group-chat/messages  ?chat_id=&limit=&before=
     POST   {hub}/api/angel/v1/group-chat           {name, members}
     PATCH  {hub}/api/angel/v1/group-chat/{id}      {name}
     DELETE {hub}/api/angel/v1/group-chat/{id}      {confirmed}
@@ -116,9 +116,21 @@ def list_associates(query: str = "") -> list[dict]:
     return (_request("GET", "/api/angel/v1/dm/associates", query={"q": query}) or {}).get("associates") or []
 
 
-def dm_read(username: str, limit: int = RECENT_LIMIT) -> list[dict]:
+def dm_page(username: str, limit: int = RECENT_LIMIT, before: str = "") -> dict:
+    """One page of a DM thread: ``messages`` (oldest first), ``has_more``,
+    ``next_before`` (pass it as ``before`` for the next older page) and
+    ``read_only`` (a past thread you can read but no longer reply to)."""
     path = "/api/angel/v1/dm/" + urllib.parse.quote(username.lstrip("@"), safe="")
-    return (_request("GET", path, query={"limit": limit}) or {}).get("messages") or []
+    query = {"limit": limit}
+    if before:
+        query["before"] = before
+    data = _request("GET", path, query=query) or {}
+    data.setdefault("messages", [])
+    return data
+
+
+def dm_read(username: str, limit: int = RECENT_LIMIT) -> list[dict]:
+    return dm_page(username, limit).get("messages") or []
 
 
 def dm_send(username: str, text: str) -> dict:
@@ -155,14 +167,32 @@ def group_read(chat_id: str) -> dict:
     return _request("GET", "/api/angel/v1/group-chat/" + urllib.parse.quote(chat_id, safe="")) or {}
 
 
-def group_messages(chat_id: str, limit: int = RECENT_LIMIT, before: str = "") -> list[dict]:
-    """Recent messages, oldest first. ``before`` (a message id) pages back:
-    the ``limit`` messages sent just before that one."""
+def group_page(chat_id: str, limit: int = RECENT_LIMIT, before: str = "") -> dict:
+    """One page of a group chat: ``messages`` (oldest first), ``has_more`` and
+    ``next_before``. ``before`` (a message id) pages back: the ``limit``
+    messages sent just before that one."""
     query = {"chat_id": chat_id, "limit": limit}
     if before:
         query["before"] = before
     data = _request("GET", "/api/angel/v1/group-chat/messages", query=query) or {}
-    return data.get("messages") or []
+    data.setdefault("messages", [])
+    return data
+
+
+def group_messages(chat_id: str, limit: int = RECENT_LIMIT, before: str = "") -> list[dict]:
+    """Recent messages, oldest first (see group_page)."""
+    return group_page(chat_id, limit, before).get("messages") or []
+
+
+# Paging back for /load-more and /history-chat asks for the server's largest page.
+HISTORY_PAGE = 50
+
+
+def page(target_kind: str, target_id: str, limit: int = RECENT_LIMIT, before: str = "") -> dict:
+    """One page of the open DM ("dm") or group chat ("group")."""
+    if target_kind == "dm":
+        return dm_page(target_id, limit, before)
+    return group_page(target_id, limit, before)
 
 
 def group_send(chat_id: str, text: str, reply_to: str = "") -> dict:
@@ -276,6 +306,8 @@ def invite_label(inv: dict) -> str:
 
 def inbox_label(t: dict) -> str:
     unread = "  ● unread" if t.get("unread") else ""
+    if t.get("read_only"):
+        unread += "  (read-only)"
     last = (t.get("last_message") or "").replace("\n", " ")
     if len(last) > 40:
         last = last[:39] + "…"
@@ -301,6 +333,37 @@ def _clock(ts: str) -> str:
     if dt.date() == datetime.now().astimezone().date():
         return dt.strftime("%H:%M")
     return dt.strftime("%d %b %H:%M")
+
+
+START_OF_CONVERSATION = "  ── start of conversation ──"
+
+
+def _local_date(ts: str):
+    try:
+        return datetime.fromisoformat((ts or "").replace("Z", "+00:00")).astimezone().date()
+    except ValueError:
+        return None
+
+
+def format_day_separator(ts: str) -> str:
+    """``  ── Mon 22 Sep 2026 ──`` for the local day of ``ts`` ("" if unparseable)."""
+    day = _local_date(ts)
+    return f"  ── {day.strftime('%a %d %b %Y')} ──" if day else ""
+
+
+def format_history(msgs: list[dict], *, prev_ts: str = "") -> list[str]:
+    """Chat lines for ``msgs`` (oldest first) with a day separator before the
+    first message of each local day. ``prev_ts`` is the message printed just
+    before these, so a day already announced isn't announced again."""
+    lines = []
+    prev_day = _local_date(prev_ts) if prev_ts else None
+    for m in msgs:
+        day = _local_date(m.get("created_at", ""))
+        if day and day != prev_day:
+            lines.append(format_day_separator(m.get("created_at", "")))
+            prev_day = day
+        lines.append(format_message(m))
+    return lines
 
 
 def format_message(m: dict) -> str:

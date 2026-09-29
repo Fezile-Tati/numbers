@@ -4713,6 +4713,12 @@ class CLICommandsMixin:
         # This hook runs before cli.py expands "[Pasted text #N: …]" markers.
         if "[Pasted text #" in text:
             text = (self._expand_paste_references(text) or "").strip()
+        if target.get("read_only"):
+            # Checked here too so the line isn't lost to a server round-trip;
+            # the server refuses the send either way.
+            _cprint("  ✗ This conversation is read-only (not an associate, or unavailable). "
+                    "Your message was not sent. /exit-chat to talk to the agent.")
+            return True
         if target["kind"] == "dm":
             ok, msg = self._numbers_chat_call(chat.dm_send, target["id"], text)
         else:
@@ -4738,17 +4744,33 @@ class CLICommandsMixin:
             _cprint("  To chat live (type to send), open the classic CLI: numbers --cli")
             return
         self._numbers_chat_target = target
-        _cprint(f"\n  💬 Opened {where}. Type to send · /list-messages · /exit-chat")
+        _cprint(f"\n  💬 Opened {where}. Type to send · /load-more · /history-chat · /exit-chat")
         self._numbers_print_recent()
+        if target.get("read_only"):
+            _cprint("  (read-only: you can read this conversation but not reply)")
         self._numbers_start_chat_poll(target)
         self._invalidate(min_interval=0.0)
 
-    def _numbers_fetch_recent(self, target: dict) -> list:
+    def _numbers_fetch_page(self, target: dict, limit: int = 0, before: str = "") -> dict:
+        """One page of ``target`` (see chat.page); also refreshes ``read_only``."""
         from numbers_ext import chat
 
-        if target["kind"] == "dm":
-            return chat.dm_read(target["id"])
-        return chat.group_messages(target["id"])
+        data = chat.page(target["kind"], target["id"], limit or chat.RECENT_LIMIT, before)
+        if target["kind"] == "dm" and not before:
+            target["read_only"] = bool(data.get("read_only"))
+        return data
+
+    def _numbers_fetch_recent(self, target: dict) -> list:
+        return self._numbers_fetch_page(target).get("messages") or []
+
+    def _numbers_mark_seen(self, target: dict, msgs) -> None:
+        """Messages on screen are not "new" to the poller."""
+        seen = target.setdefault("seen", set())
+        texts = target.setdefault("texts", {})
+        for m in msgs or []:
+            if m.get("id"):
+                seen.add(m["id"])
+                texts[m["id"]] = m.get("text", "")
 
     def _numbers_print_recent(self, target: "dict | None" = None) -> None:
         from cli import _cprint
@@ -4758,24 +4780,21 @@ class CLICommandsMixin:
         if not target:
             _cprint("  No chat open. Use /chat to pick a group or associate.")
             return
-        ok, msgs = self._numbers_chat_call(self._numbers_fetch_recent, target)
+        ok, data = self._numbers_chat_call(self._numbers_fetch_page, target)
         if not ok:
             return
-        # Whatever is on screen now is not "new" to the poller.
-        seen = target.setdefault("seen", set())
-        texts = target.setdefault("texts", {})
-        for m in msgs or []:
-            if m.get("id"):
-                seen.add(m["id"])
-                texts[m["id"]] = m.get("text", "")
+        msgs = (data or {}).get("messages") or []
+        self._numbers_mark_seen(target, msgs)
+        # /load-more pages back from here.
+        target["oldest_id"] = (data or {}).get("next_before") or (msgs[0].get("id", "") if msgs else "")
+        target["has_more"] = bool((data or {}).get("has_more"))
         if not msgs:
             _cprint("  (no messages yet)")
             return
-        shown = msgs[-chat.RECENT_LIMIT:]
-        # /load-more pages back from the oldest message on screen.
-        target["oldest_id"] = shown[0].get("id", "")
-        for m in shown:
-            _cprint(chat.format_message(m))
+        if not target["has_more"]:
+            _cprint(chat.START_OF_CONVERSATION)
+        for line in chat.format_history(msgs):
+            _cprint(line)
 
     def _numbers_start_chat_poll(self, target: dict) -> None:
         """Print other people's new (and edited) messages while ``target`` stays open.
@@ -5407,13 +5426,28 @@ class CLICommandsMixin:
         for m in hits:
             _cprint(chat.format_message(m))
 
+    # --- /load-more, /history-chat: DMs and group chats ------------------------
+
+    def _numbers_require_chat(self):
+        from cli import _cprint
+
+        target = getattr(self, "_numbers_chat_target", None)
+        if not target:
+            _cprint("  Open a chat first with /chat, /inbox or /groups.")
+            return None
+        return target
+
     def _handle_load_more_command(self, command: str) -> None:
+        """The page of messages before the oldest one loaded so far.
+
+        A terminal can't insert above what is already printed, so each older
+        page is printed below, under a header saying where it starts."""
         from cli import _cprint
         from numbers_ext import chat
 
         if not self._numbers_require_signin():
             return
-        target = self._numbers_require_group()
+        target = self._numbers_require_chat()
         if not target:
             return
         oldest = target.get("oldest_id")
@@ -5421,22 +5455,119 @@ class CLICommandsMixin:
             # Nothing shown yet: the first page is just the recent messages.
             self._numbers_print_recent(target)
             return
-        ok, msgs = self._numbers_chat_call(chat.group_messages, target["id"],
-                                           chat.RECENT_LIMIT, oldest)
+        if target.get("has_more") is False:
+            _cprint(chat.START_OF_CONVERSATION + "  (no older messages)")
+            return
+        ok, data = self._numbers_chat_call(self._numbers_fetch_page, target, chat.RECENT_LIMIT, oldest)
         if not ok:
             return
+        msgs = (data or {}).get("messages") or []
+        target["oldest_id"] = (data or {}).get("next_before") or (msgs[0].get("id") if msgs else "") or oldest
+        target["has_more"] = bool((data or {}).get("has_more"))
+        self._numbers_mark_seen(target, msgs)
         if not msgs:
-            _cprint("  No older messages.")
+            if target["has_more"]:
+                _cprint("  (only deleted messages here; /load-more again to keep going)")
+            else:
+                _cprint(chat.START_OF_CONVERSATION + "  (no older messages)")
             return
-        target["oldest_id"] = msgs[0].get("id") or oldest
-        seen = target.setdefault("seen", set())
-        texts = target.setdefault("texts", {})
-        _cprint(f"  ── {len(msgs)} earlier message{'s' if len(msgs) != 1 else ''} ──")
-        for m in msgs:
-            if m.get("id"):
-                seen.add(m["id"])
-                texts[m["id"]] = m.get("text", "")
-            _cprint(chat.format_message(m))
+        n = len(msgs)
+        _cprint(f"  ── {n} earlier message{'s' if n != 1 else ''} "
+                f"(from {chat.format_day_separator(msgs[0].get('created_at', '')).strip(' ─') or '?'}) ──")
+        if not target["has_more"]:
+            _cprint(chat.START_OF_CONVERSATION)
+        for line in chat.format_history(msgs):
+            _cprint(line)
+
+    HISTORY_CAP = 2000   # messages /history-chat loads at most
+    HISTORY_SCREEN = 50  # lines printed between "more?" prompts
+
+    def _handle_history_chat_command(self, command: str) -> None:
+        """/history-chat [N|all]: the open chat's history, oldest first.
+
+        Pages back to the start (or N messages), then prints everything in
+        reading order with day separators, a screenful at a time. Older lines
+        stay in the terminal's scrollback."""
+        from cli import _cprint
+        from numbers_ext import chat
+
+        if not self._numbers_require_signin():
+            return
+        target = self._numbers_require_chat()
+        if not target:
+            return
+        arg = (self._numbers_arg(command) or "all").strip().lower()
+        if arg == "all":
+            want = self.HISTORY_CAP
+        elif arg.isdigit() and int(arg) > 0:
+            want = min(int(arg), self.HISTORY_CAP)
+        else:
+            _cprint("  Usage: /history-chat [N|all]   e.g. /history-chat 200")
+            return
+
+        where = f"@{target['label']}" if target["kind"] == "dm" else f"#{target['label']}"
+        _cprint(f"  Loading history of {where}…")
+        pages: list = []
+        loaded, before, has_more = 0, "", True
+        while has_more and loaded < want:
+            ok, data = self._numbers_chat_call(self._numbers_fetch_page, target,
+                                               min(chat.HISTORY_PAGE, want - loaded), before)
+            if not ok:
+                if not pages:
+                    return
+                _cprint("  ✗ Stopped loading; showing what was loaded.")
+                break
+            msgs = (data or {}).get("messages") or []
+            has_more = bool((data or {}).get("has_more"))
+            next_before = (data or {}).get("next_before") or (msgs[0].get("id") if msgs else "")
+            if msgs:
+                pages.append(msgs)
+                loaded += len(msgs)
+            if not next_before or next_before == before:
+                break  # no way further back
+            before = next_before
+        history = [m for page in reversed(pages) for m in page]
+        if not history:
+            _cprint("  (no messages yet)")
+            return
+        self._numbers_mark_seen(target, history)
+        # /load-more carries on from the oldest message loaded here.
+        if before:
+            target["oldest_id"] = before
+        target["has_more"] = has_more
+
+        lines = []
+        if not has_more:
+            lines.append(chat.START_OF_CONVERSATION)
+        elif arg == "all":
+            lines.append(f"  ── showing the latest {len(history)} messages (limit {self.HISTORY_CAP}) ──")
+        else:
+            lines.append(f"  ── latest {len(history)} messages; /history-chat all for more ──")
+        lines += chat.format_history(history)
+        lines.append(f"  ── end of history: {len(history)} message{'s' if len(history) != 1 else ''} ──")
+
+        for i in range(0, len(lines), self.HISTORY_SCREEN):
+            for line in lines[i:i + self.HISTORY_SCREEN]:
+                _cprint(line)
+            if i + self.HISTORY_SCREEN >= len(lines):
+                break
+            left = len(lines) - i - self.HISTORY_SCREEN
+            # A choice modal, not _numbers_prompt: slash commands run on the
+            # process_loop thread, where a text prompt returns "" at once and
+            # would never pause. The modal asks from any thread.
+            answer = self._numbers_choice(
+                title="Chat history",
+                detail=f"{left} more line{'s' if left != 1 else ''}. Scroll up to read what is shown.",
+                choices=[("more", "Show more", f"next {min(left, self.HISTORY_SCREEN)} lines"),
+                         ("all", "Show the rest", ""),
+                         ("stop", "Stop", "")])
+            if answer == "all":
+                for line in lines[i + self.HISTORY_SCREEN:]:
+                    _cprint(line)
+                break
+            if answer != "more":
+                _cprint("  History stopped. /history-chat to start again.")
+                return
     # NUMBERS-FORK-END: mixin-handlers
 
     def _persist_wake_word_enabled(self, enabled: bool):
