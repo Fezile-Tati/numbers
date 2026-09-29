@@ -446,8 +446,6 @@ COMMAND_REGISTRY: list[CommandDef] = [
                args_hint="[search]", cli_only=True, desktop="terminal"),
     CommandDef("groups", "Pick one of your group chats and open it", "Chat",
                args_hint="[search]", cli_only=True, desktop="terminal"),
-    CommandDef("list-messages", "Show the 30 most recent messages in the open DM or group chat", "Chat",
-               cli_only=True, desktop="terminal"),
     CommandDef("exit-chat", "Close the open DM or group chat; typing goes back to the agent", "Chat",
                cli_only=True, desktop="terminal"),
     CommandDef("load-more", "Show the 30 messages before the oldest one shown in the open DM or group chat", "Chat",

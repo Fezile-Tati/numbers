@@ -248,7 +248,7 @@ def test_signed_out_makes_no_request(monkeypatch, echo):
 
 
 def test_labels():
-    assert chat.invite_label({"group_name": "Elders", "inviter": "me"}) == "✉ Invite: Elders  from @me"
+    assert chat.invite_label({"group_name": "Elders", "inviter": "me"}) == "📥 Invite: Elders  from @me"
     assert chat.member_label({"username": "deborah", "role": "admin"}) == "@deborah  (admin)"
     assert "● unread" in chat.inbox_label({"with_username": "deborah", "unread": True})
 

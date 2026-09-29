@@ -11433,7 +11433,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         for idx, (_value, label, desc) in enumerate(choices):
             marker = "❯" if idx == selected else " "
             preview_lines.extend(_wrap_panel_text(f"{marker} [{idx + 1}] {label} — {desc}", 72, subsequent_indent="    "))
-        preview_lines.append("Type 1/2/3 or use ↑/↓ then Enter. ESC/Ctrl+C cancels.")
+        preview_lines.append("Type 1/2/3 or use ↑/↓ then press Enter and wait. ESC/Ctrl+C cancels.")
 
         box_width = _panel_box_width(title, preview_lines)
         inner_text_width = max(8, box_width - 2)
@@ -11467,7 +11467,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             style = 'class:approval-selected' if idx == selected else 'class:approval-choice'
             _append_panel_line(lines, 'class:approval-border', style, wrapped, box_width)
         _append_blank_panel_line(lines, 'class:approval-border', box_width)
-        _append_panel_line(lines, 'class:approval-border', 'class:approval-cmd', 'Type 1/2/3 or use ↑/↓ then Enter. ESC/Ctrl+C cancels.', box_width)
+        _append_panel_line(lines, 'class:approval-border', 'class:approval-cmd', 'Type 1/2/3 or use ↑/↓ then press Enter and wait. ESC/Ctrl+C cancels.', box_width)
         lines.append(('class:approval-border', '╰' + ('─' * box_width) + '╯\n'))
         return lines
 
@@ -13160,8 +13160,6 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             self._handle_list_associates_command(cmd_original)
         elif canonical == "groups":
             self._handle_groups_command(cmd_original)
-        elif canonical == "list-messages":
-            self._handle_list_messages_command(cmd_original)
         elif canonical == "exit-chat":
             self._handle_exit_chat_command(cmd_original)
         elif canonical == "group-create":

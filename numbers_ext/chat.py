@@ -301,7 +301,7 @@ def group_label(g: dict) -> str:
 
 
 def invite_label(inv: dict) -> str:
-    return f"✉ Invite: {inv.get('group_name') or 'a group chat'}  from @{inv.get('inviter') or '?'}"
+    return f"📥 Invite: {inv.get('group_name') or 'a group chat'}  from @{inv.get('inviter') or '?'}"
 
 
 def inbox_label(t: dict) -> str:

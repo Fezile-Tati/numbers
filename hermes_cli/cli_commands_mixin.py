@@ -4611,20 +4611,36 @@ class CLICommandsMixin:
         parts = (command or "").strip().split(maxsplit=1)
         return parts[1].strip() if len(parts) > 1 else ""
 
+    @staticmethod
+    def _numbers_search_hint(hint: str) -> str:
+        """The picker's instruction line. The bracketed numbers are OPTION
+        numbers, not item counts: "(0) <what to do>, (1) — type to search".
+        A hint that already spells out its own "type to search" option
+        (/chat's legend) is shown as written."""
+        if "type to search" in hint:
+            return hint
+        return f"(0) {hint}, (1) — type to search"
+
     def _numbers_pick(self, title: str, hint: str, entries: list, on_select) -> None:
         """A picker that works in the classic CLI and in the TUI.
 
-        Classic CLI: the filterable /model-style picker (on_select runs on a
-        worker thread). TUI slash worker: a numbered menu over the remote
-        prompt channel, answered in one round trip.
+        ``hint`` is the action ("Select a conversation"); the classic picker
+        adds the search option via _numbers_search_hint. Classic CLI: the
+        filterable /model-style picker (on_select runs on a worker thread).
+        TUI slash worker: a numbered menu over the remote prompt channel,
+        answered in one round trip -- it cannot be typed into, so the search
+        option is left off there.
         """
+        import re
+
         if not entries:
             return
         if not self._numbers_remote_active():
             self._numbers_open_list_picker(title, hint, entries, on_select)
             return
         choices = [(str(i), label, "") for i, (label, _value) in enumerate(entries)]
-        picked = self._numbers_choice(title=title, detail=hint, choices=choices)
+        detail = re.sub(r",?\s*\(\d\)\s*(—\s*)?type to search$", "", hint)
+        picked = self._numbers_choice(title=title, detail=detail, choices=choices)
         if picked is None:
             return
         on_select(entries[int(picked)][1])
@@ -4653,13 +4669,11 @@ class CLICommandsMixin:
         if not nl:
             return title, hint
         query = state.get("filter", "") or ""
-        total = len(state.get("model_list") or [])
         if query:
+            total = len(state.get("model_list") or [])
             shown = len(state.get("_filtered_pairs") or [])
             return nl["title"], f"Search: {query}▏  ({shown}/{total} — type to narrow, Backspace to clear)"
-        if nl["hint"].endswith("type to search"):
-            return nl["title"], nl["hint"]  # the hint is already the full line
-        return nl["title"], f"{nl['hint']} ({total}) — type to search"
+        return nl["title"], self._numbers_search_hint(nl["hint"])
 
     def _numbers_list_picker_select(self) -> None:
         """cli.py Enter hook for our pickers (runs on the UI thread)."""
@@ -4922,7 +4936,8 @@ class CLICommandsMixin:
             else:
                 self._numbers_enter_chat("dm", obj["username"], obj["username"])
 
-        self._numbers_pick("💬 Chat", "Invites, group-chats (#), associates (@), type to search", entries, _open)
+        self._numbers_pick("💬 Chat", "✉ Invites (📥), group-chats (#), associates (@), (0) type to search",
+                           entries, _open)
 
     def _numbers_answer_invite(self, inv: dict) -> None:
         from cli import _cprint
@@ -4976,7 +4991,7 @@ class CLICommandsMixin:
         if not ok:
             return
         if not threads:
-            _cprint("  No direct messages yet. Start one with /chat.")
+            _cprint("  No messages received yet. Start one with /chat.")
             return
         unread = sum(1 for t in threads if t.get("unread"))
         entries = []
@@ -5034,11 +5049,6 @@ class CLICommandsMixin:
             [(chat.group_label(g), g) for g in groups],
             lambda g: self._numbers_enter_chat("group", g["id"], g.get("name") or g["id"], g.get("owner_id", "")),
         )
-
-    def _handle_list_messages_command(self, command: str) -> None:
-        if not self._numbers_require_signin():
-            return
-        self._numbers_print_recent()
 
     def _handle_exit_chat_command(self, command: str) -> None:
         from cli import _cprint
@@ -5115,7 +5125,7 @@ class CLICommandsMixin:
                     _cprint(f"  ✓ Invite sent to @{username}.")
             self._numbers_pick_member_to_invite(chat_id, query)
 
-        self._numbers_pick("👥 Invite members", "Pick an associate to invite, or Done", choices, _invite)
+        self._numbers_pick("👥 Invite members", "Pick an associate to invite then select done", choices, _invite)
 
     def _handle_group_add_command(self, command: str) -> None:
         from cli import _cprint
@@ -5197,7 +5207,7 @@ class CLICommandsMixin:
                 _cprint(f"  ✓ @{m['username']} {verb}.")
 
         self._numbers_pick(
-            "🛡 Group admins", f"Admins: {admins}/2 — select a member to promote or demote",
+            "🛡 Group admins", f"Select a member to promote or demote ({admins}/2 admins)",
             [(chat.member_label(m), m) for m in members], _toggle,
         )
 

@@ -38,7 +38,10 @@ plugins:
 mcp_servers:
   angel:
     command: "C:\\\\numbers\\\\bin\\\\numbers-mcp.exe"
-    args: ["-angel", "https://127.0.0.1:3000", "-insecure"]
+    args: []
+    env:
+      NUMBERS_HUB_URL: "${NUMBERS_HUB_URL}"
+      NUMBERS_INSECURE: "${NUMBERS_INSECURE}"
 agent:
   system_prompt: |
     You are NUMBERS 21:4-9, the Intersession assistant.

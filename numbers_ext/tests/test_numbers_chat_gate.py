@@ -15,7 +15,7 @@ from numbers_ext import chat
 CHAT_HANDLERS = [
     "_handle_chat_command", "_handle_inbox_command", "_handle_invites_command",
     "_handle_list_associates_command", "_handle_groups_command",
-    "_handle_list_messages_command", "_handle_group_create_command",
+    "_handle_group_create_command",
     "_handle_group_add_command", "_handle_group_remove_command",
     "_handle_group_admins_command", "_handle_group_members_command",
     "_handle_group_leave_command", "_handle_group_rename_command",
