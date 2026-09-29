@@ -437,7 +437,7 @@ export interface InputHandlerActions {
   die: () => void
   dispatchSubmission: (full: string) => void
   guardBusySessionSwitch: (what?: string) => boolean
-  newSession: (msg?: string, title?: string) => void
+  newSession: (msg?: string, title?: string, runtime?: { model: string; provider?: string }) => void // NUMBERS-CLEAR iface
   sys: (text: string) => void
 }
 
@@ -480,7 +480,7 @@ export interface GatewayEventHandlerContext {
   session: {
     STARTUP_RESUME_ID: string
     colsRef: MutableRefObject<number>
-    newSession: (msg?: string, title?: string) => void
+    newSession: (msg?: string, title?: string, runtime?: { model: string; provider?: string }) => void // NUMBERS-CLEAR iface
     // Set by useMainApp's exit handler to the session that was live when the
     // gateway died unexpectedly; consumed once by the next `gateway.ready` so a
     // respawn resumes that session instead of forging a fresh one.
@@ -540,7 +540,7 @@ export interface SlashHandlerContext {
     dieWithCode: (code: number) => void
     guardBusySessionSwitch: (what?: string) => boolean
     newLiveSession: (msg?: string, title?: string) => void
-    newSession: (msg?: string, title?: string) => void
+    newSession: (msg?: string, title?: string, runtime?: { model: string; provider?: string }) => void // NUMBERS-CLEAR iface
     resetVisibleHistory: (info?: null | SessionInfo) => void
     resumeById: (id: string) => void
     setSessionStartedAt: StateSetter<number>

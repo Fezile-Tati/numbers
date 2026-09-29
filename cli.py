@@ -10425,7 +10425,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             return None
         return history_snapshot
 
-    def new_session(self, silent=False, title=None):
+    def new_session(self, silent=False, title=None, keep_model=False):  # NUMBERS-CLEAR new-session-sig
         """Start a fresh session with a new session ID and cleared agent state."""
         old_session_id = self.session_id
         _boundary_snapshot = None
@@ -10489,10 +10489,22 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         self.service_tier = _parse_service_tier_config(
             CLI_CONFIG["agent"].get("service_tier", "")
         )
+        # NUMBERS-CLEAR fresh-config: reset to what config.yaml holds NOW. CLI_CONFIG is
+        # the startup snapshot; a saved /model pick (--global, first-ever pick) rewrites
+        # config.yaml but never that snapshot, so /new used to undo the save.
         _model_config = CLI_CONFIG.get("model", {})
+        if os.environ.get("HERMES_IGNORE_USER_CONFIG") != "1":
+            try:
+                from hermes_cli.config import load_config_readonly
+
+                _model_config = load_config_readonly().get("model", _model_config)
+            except Exception:
+                pass  # unreadable config.yaml: fall back to the startup snapshot
         _raw_default2 = (_model_config.get("default") or _model_config.get("model") or "") if isinstance(_model_config, dict) else (_model_config or "")
         _config_model, _ = _split_model_config_default(_raw_default2)
-        if _config_model and _config_model != getattr(self, "model", None):
+        # NUMBERS-CLEAR keep-model-guard: /clear wipes the screen and conversation,
+        # not the model/provider the user is running (keep_model=True).
+        if not keep_model and _config_model and _config_model != getattr(self, "model", None):
             _config_provider = (
                 _model_config.get("provider", "")
                 if isinstance(_model_config, dict)
@@ -12659,7 +12671,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                 cmd_original=cmd_original,
             ) is None:
                 return True  # confirmation cancelled — command handled, keep REPL alive
-            self.new_session(silent=True)
+            self.new_session(silent=True, keep_model=True)  # NUMBERS-CLEAR clear-call
             _clear_output_history()
             # Clear terminal screen.  Inside the TUI, Rich's console.clear()
             # goes through patch_stdout's StdoutProxy which swallows the

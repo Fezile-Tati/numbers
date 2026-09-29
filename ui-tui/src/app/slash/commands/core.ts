@@ -196,6 +196,14 @@ export const coreCommands: SlashCommand[] = [
 
       const commit = () => {
         patchUiState({ status: 'forging session…' })
+        // NUMBERS-CLEAR clear-keeps-model: /clear keeps the live model/provider;
+        // /new (and /reset) start on the config default, as in Hermes.
+        const live = ctx.ui.info
+
+        if (!isNew && live?.model) {
+          return ctx.session.newSession(undefined, undefined, { model: live.model, provider: live.provider || undefined })
+        }
+
         ctx.session.newSession(isNew ? 'new session started' : undefined, requestedTitle || undefined)
       }
 

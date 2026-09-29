@@ -184,7 +184,9 @@ export function useSessionLifecycle(opts: UseSessionLifecycleOptions) {
   )
 
   const startNewSession = useCallback(
-    async (msg?: string, title?: string, keepCurrent = false) => {
+    // NUMBERS-CLEAR new-session-runtime: `runtime` (from /clear) rides into session.create as the
+    // per-session model override -- the desktop sticky-pick path -- so /clear keeps the model.
+    async (msg?: string, title?: string, keepCurrent = false, runtime?: { model: string; provider?: string }) => {
       const setup = await rpc<SetupStatusResponse>('setup.status', {})
 
       if (setup?.provider_configured === false) {
@@ -200,7 +202,7 @@ export function useSessionLifecycle(opts: UseSessionLifecycleOptions) {
         await closeSession(previousSid)
       }
 
-      const r = await rpc<SessionCreateResponse>('session.create', { cols: colsRef.current })
+      const r = await rpc<SessionCreateResponse>('session.create', { cols: colsRef.current, ...runtime }) // NUMBERS-CLEAR create-runtime
 
       if (!r) {
         patchUiState({ status: 'ready' })
@@ -271,7 +273,8 @@ export function useSessionLifecycle(opts: UseSessionLifecycleOptions) {
   )
 
   const newSession = useCallback(
-    (msg?: string, title?: string) => startNewSession(msg, title, false),
+    (msg?: string, title?: string, runtime?: { model: string; provider?: string }) =>
+      startNewSession(msg, title, false, runtime), // NUMBERS-CLEAR new-session-fwd
     [startNewSession]
   )
 

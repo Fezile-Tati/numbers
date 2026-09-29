@@ -204,6 +204,7 @@ export interface SessionInfo {
   model: string
   profile_name?: string
   project?: null | ProjectInfo
+  provider?: string // NUMBERS-CLEAR info-provider: tui_gateway _session_info sends it
   reasoning_effort?: string
   release_date?: string
   service_tier?: string
