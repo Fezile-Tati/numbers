@@ -4561,6 +4561,14 @@ class CLICommandsMixin:
     # "owner_id", "seen": set(ids), "texts": {id: text}}. While it is set, plain
     # input is sent to that chat instead of the agent (cli.py process_loop hook)
     # and the prompt shows where it goes.
+    # Two optional keys change where the next line goes (the prompt shows them):
+    #   "pending": {"kind": "reply"|"edit", "message": m} -- the next line is a
+    #       reply to m (/reply) or m's new text (/msg-edit), then it clears.
+    #   "thread": m -- the replies view (/replies): every line is a reply to m
+    #       until /exit-reply.
+    # Free text is never read with a prompt from a picker's worker thread:
+    # cli.py's text prompt returns nothing off the main thread, which made
+    # /reply print "Reply cancelled." before the user could type.
     # Pickers reuse the /model picker's "model" stage, which already provides
     # type-to-filter, arrow keys, Back and Cancel; state["numbers_list"] marks
     # it as ours and cli.py hands the Enter key to _numbers_list_picker_select.
@@ -4700,6 +4708,13 @@ class CLICommandsMixin:
         if not target:
             return []
         tag = "@" + target["label"] if target["kind"] == "dm" else "#" + target["label"]
+        pending = target.get("pending")
+        if pending and pending["kind"] == "edit":
+            tag += " ✏ edit"
+        elif pending:
+            tag += " ↪ @" + (pending["message"].get("from") or "?")
+        elif target.get("thread"):
+            tag += " ↪ thread @" + (target["thread"].get("from") or "?")
         return [("class:prompt-working", f"[{tag}] ")]
 
     def _numbers_chat_intercept(self, text: str) -> bool:
@@ -4733,10 +4748,21 @@ class CLICommandsMixin:
             _cprint("  ✗ This conversation is read-only (not an associate, or unavailable). "
                     "Your message was not sent. /exit-chat to talk to the agent.")
             return True
+        pending = target.pop("pending", None)
+        if pending:
+            self._invalidate(min_interval=0.0)  # the prompt tag changes back
+        if pending and pending["kind"] == "edit":
+            m = pending["message"]
+            fn = chat.dm_edit if target["kind"] == "dm" else chat.group_edit_message
+            if self._numbers_chat_call(fn, m["id"], text)[0]:
+                target.setdefault("texts", {})[m["id"]] = text
+                _cprint(chat.format_message(dict(m, text=text, edited=True)))
+            return True
         if target["kind"] == "dm":
             ok, msg = self._numbers_chat_call(chat.dm_send, target["id"], text)
         else:
-            ok, msg = self._numbers_chat_call(chat.group_send, target["id"], text)
+            parent = (pending or {}).get("message") or target.get("thread") or {}
+            ok, msg = self._numbers_chat_call(chat.group_send, target["id"], text, parent.get("id", ""))
         if ok:
             if (msg or {}).get("id"):
                 target.setdefault("seen", set()).add(msg["id"])
@@ -5068,21 +5094,16 @@ class CLICommandsMixin:
 
         if not self._numbers_require_signin():
             return
-        name = self._numbers_arg(command)
+        # "/group-create <name> | <description>": the description rides on the
+        # command line (a follow-up prompt cannot be read from here).
+        name, _, description = self._numbers_arg(command).partition("|")
+        name, description = name.strip(), description.strip()
         if not name:
-            _cprint("  Usage: /group-create <name>")
+            _cprint(f"  Usage: /group-create <name> | <description, max {chat.GROUP_DESC_MAX} chars>")
             return
-        description = ""
-        for _attempt in range(3):
-            description = (self._numbers_prompt(
-                f"Group description, one sentence, max {chat.GROUP_DESC_MAX} chars (Enter = skip): "
-            ) or "").strip()
-            problem = chat.check_group_description(description)
-            if not problem:
-                break
-            _cprint(f"  {problem}")
-        else:
-            _cprint("  Group not created.")
+        problem = chat.check_group_description(description)
+        if problem:
+            _cprint(f"  {problem} Group not created.")
             return
         ok, group = self._numbers_chat_call(chat.group_create, name, None, description)
         if not ok:
@@ -5160,7 +5181,8 @@ class CLICommandsMixin:
             _cprint("  Only the group owner or an admin can remove members.")
             return
         owner = detail.get("owner_id")
-        members = [m for m in detail.get("members") or [] if m.get("user_id") != owner]
+        members = [m for m in detail.get("members") or []
+                   if m.get("user_id") != owner and m.get("status") == "active" and not m.get("blocked")]
         if role == "admin":  # admins manage regular members only
             members = [m for m in members if m.get("role") != "admin"]
         if not members:
@@ -5168,6 +5190,13 @@ class CLICommandsMixin:
             return
 
         def _remove(username):
+            choices = [
+                ("remove", "Remove", f"Remove @{username} from {target['label']}. They need a new invite to come back."),
+                ("cancel", "Cancel", "Keep them in the group chat."),
+            ]
+            if self._numbers_choice(title=f"Remove @{username}?", detail="", choices=choices) != "remove":
+                _cprint("  Remove cancelled.")
+                return
             if self._numbers_chat_call(chat.group_remove_member, target["id"], username)[0]:
                 _cprint(f"  ✓ Removed @{username}.")
 
@@ -5229,6 +5258,34 @@ class CLICommandsMixin:
         _cprint(f"  {target['label']} — {len(members)} member{'s' if len(members) != 1 else ''}:")
         for m in members:
             _cprint("    " + chat.member_label(m) + ("  (blocked)" if m.get("blocked") else ""))
+
+    def _handle_group_stats_command(self, command: str) -> None:
+        """/group-stats: description, owner (and account type), member count.
+        Uses the open group chat, or asks which group without one."""
+        from cli import _cprint
+        from numbers_ext import chat
+
+        if not self._numbers_require_signin():
+            return
+
+        def _show(chat_id: str) -> None:
+            ok, detail = self._numbers_chat_call(chat.group_read, chat_id)
+            if ok:
+                for line in chat.group_stats_lines(detail or {}):
+                    _cprint(line)
+
+        target = getattr(self, "_numbers_chat_target", None)
+        if target and target["kind"] == "group":
+            _show(target["id"])
+            return
+        ok, groups = self._numbers_chat_call(chat.list_groups, self._numbers_arg(command))
+        if not ok:
+            return
+        if not groups:
+            _cprint("  You are not in any group chats.")
+            return
+        self._numbers_pick("📊 Group stats", "Select a group chat",
+                           [(chat.group_label(g), g["id"]) for g in groups], _show)
 
     def _handle_group_leave_command(self, command: str) -> None:
         from cli import _cprint
@@ -5338,19 +5395,13 @@ class CLICommandsMixin:
 
     def _handle_msg_edit_command(self, command: str) -> None:
         from cli import _cprint
-        from numbers_ext import chat
 
         def _edit(target, m) -> None:
-            _cprint(f"  Editing: {m.get('text', '')}")
-            text = (self._numbers_prompt("New text (Enter = cancel): ") or "").strip()
-            if not text:
-                _cprint("  Edit cancelled.")
-                return
-            fn = chat.dm_edit if target["kind"] == "dm" else chat.group_edit_message
-            ok, _ = self._numbers_chat_call(fn, m["id"], text)
-            if ok:
-                target.setdefault("texts", {})[m["id"]] = text
-                _cprint(chat.format_message(dict(m, text=text, edited=True)))
+            # The next line typed becomes the new text (see _numbers_chat_intercept).
+            target["pending"] = {"kind": "edit", "message": m}
+            _cprint(f"  ✏ Editing: {m.get('text', '')}")
+            _cprint("    Type the new text and press Enter · /exit-reply cancels")
+            self._invalidate(min_interval=0.0)
 
         self._numbers_pick_own_message("✏ Edit a message", _edit)
 
@@ -5359,62 +5410,106 @@ class CLICommandsMixin:
         from numbers_ext import chat
 
         def _delete(target, m) -> None:
-            choices = [
-                ("delete", "Delete", "Remove it for everyone in this chat."),
-                ("cancel", "Cancel", "Keep the message."),
-            ]
-            answer = self._numbers_choice(title="Delete this message?",
-                                          detail=chat.message_label(m), choices=choices)
+            n = m.get("reply_count") or 0
+            title = "Delete this message?"
+            what = "Remove it for everyone in this chat."
+            if n:
+                title = f"Delete this message and its {chat.replies_label(n)}?"
+                what = "Remove it and every reply to it for everyone in this chat."
+            choices = [("delete", "Delete", what), ("cancel", "Cancel", "Keep the message.")]
+            answer = self._numbers_choice(title=title, detail=chat.message_label(m), choices=choices)
             if answer != "delete":
                 _cprint("  Delete cancelled.")
                 return
             fn = chat.dm_delete if target["kind"] == "dm" else chat.group_delete_message
             if self._numbers_chat_call(fn, m["id"])[0]:
-                _cprint("  ✓ Message deleted.")
+                _cprint("  ✓ Message deleted." + (f" Its {chat.replies_label(n)} went with it." if n else ""))
+                if (target.get("thread") or {}).get("id") == m["id"]:
+                    target.pop("thread", None)
+                    self._invalidate(min_interval=0.0)
 
         self._numbers_pick_own_message("🗑 Delete a message", _delete)
 
-    # --- /reply, /replies, /mentions, /load-more: group chats only -------------
+    # --- /reply, /replies, /exit-reply, /mentions: group chats only -----------
 
     def _handle_reply_command(self, command: str) -> None:
+        """Pick one of the 30 most recent messages; the next line typed is the reply."""
         from cli import _cprint
         from numbers_ext import chat
 
         def _reply(target, m) -> None:
+            target["pending"] = {"kind": "reply", "message": m}
             who = "yourself" if m.get("mine") else "@" + (m.get("from") or "?")
-            _cprint(f"  Replying to {who}: {chat.message_label(m)}")
-            text = (self._numbers_prompt(f"Reply to {who} (Enter = cancel): ") or "").strip()
-            if not text:
-                _cprint("  Reply cancelled.")
-                return
-            ok, msg = self._numbers_chat_call(chat.group_send, target["id"], text, m["id"])
-            if ok:
-                if (msg or {}).get("id"):
-                    target.setdefault("seen", set()).add(msg["id"])
-                    target.setdefault("texts", {})[msg["id"]] = msg.get("text", text)
-                _cprint(chat.format_message(msg or {"mine": True, "text": text}))
+            _cprint(f"  ↪ Replying to {who}: {chat.message_label(m)}")
+            _cprint("    Type your reply and press Enter · /exit-reply cancels")
+            self._invalidate(min_interval=0.0)
 
         self._numbers_pick_message("↪ Reply to a message", _reply, group_only=True)
 
     def _handle_replies_command(self, command: str) -> None:
+        """Pick a message that has replies (type a username to narrow), then
+        view its thread; typing replies to it until /exit-reply."""
         from cli import _cprint
         from numbers_ext import chat
 
-        def _show(target, m) -> None:
-            ok, res = self._numbers_chat_call(chat.group_replies, m["id"])
-            if not ok:
-                return
-            parent, replies = res
-            _cprint(chat.format_message(parent or m))
-            if not replies:
-                _cprint("    No replies yet.")
-                return
-            _cprint(f"    {len(replies)} repl{'y' if len(replies) == 1 else 'ies'}:")
-            for r in replies:
-                # The parent is printed above; don't repeat it on every reply.
-                _cprint("  " + chat.format_message(dict(r, reply_preview=None)))
+        if not self._numbers_require_signin():
+            return
+        target = self._numbers_require_group()
+        if not target:
+            return
+        ok, msgs = self._numbers_chat_call(chat.group_messages, target["id"], chat.HISTORY_PAGE)
+        if not ok:
+            return
+        parents = chat.reply_parents(msgs or [])
+        if not parents:
+            _cprint("  No recent message here has replies yet. Start one with /reply.")
+            return
 
-        self._numbers_pick_message("💬 Replies to a message", _show, group_only=True)
+        def _label(m, n) -> str:
+            who = "you" if m.get("mine") else "@" + (m.get("from") or "?")
+            return f"{who}: {chat.message_label(m)}  ({chat.replies_label(n)})"
+
+        self._numbers_pick("💬 Replies", "Select a message to view its replies (type a username to narrow)",
+                           [(_label(m, n), m) for m, n in parents],
+                           lambda m: self._numbers_open_thread(target, m))
+
+    def _numbers_open_thread(self, target: dict, m: dict) -> None:
+        from cli import _cprint
+        from numbers_ext import chat
+
+        ok, res = self._numbers_chat_call(chat.group_replies, m["id"])
+        if not ok:
+            return
+        parent, replies = res
+        parent = parent or m
+        _cprint(f"\n  💬 Replies to @{parent.get('from') or '?'}:")
+        _cprint(chat.format_message(parent))
+        for r in replies:
+            # The parent is printed above; don't repeat it on every reply.
+            _cprint("  " + chat.format_message(dict(r, reply_preview=None)))
+        if not replies:
+            _cprint("    No replies yet.")
+        self._numbers_mark_seen(target, replies)
+        target.pop("pending", None)
+        target["thread"] = parent
+        _cprint("  Type to reply to this message · /exit-reply to go back to the chat")
+        self._invalidate(min_interval=0.0)
+
+    def _handle_exit_reply_command(self, command: str) -> None:
+        from cli import _cprint
+
+        target = getattr(self, "_numbers_chat_target", None)
+        pending = (target or {}).pop("pending", None)
+        thread = (target or {}).pop("thread", None)
+        if pending and pending["kind"] == "edit":
+            _cprint("  Edit cancelled.")
+        elif pending:
+            _cprint("  Reply cancelled.")
+        if thread:
+            _cprint(f"  Left the replies. Back in #{target['label']}.")
+        if not pending and not thread:
+            _cprint("  Not replying or viewing replies.")
+        self._invalidate(min_interval=0.0)
 
     def _handle_mentions_command(self, command: str) -> None:
         from cli import _cprint

@@ -13186,6 +13186,8 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             self._handle_reply_command(cmd_original)
         elif canonical == "replies":
             self._handle_replies_command(cmd_original)
+        elif canonical == "exit-reply":
+            self._handle_exit_reply_command(cmd_original)
         elif canonical == "mentions":
             self._handle_mentions_command(cmd_original)
         elif canonical == "msg-edit":
@@ -13196,6 +13198,8 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             self._handle_group_admins_command(cmd_original)
         elif canonical == "group-members":
             self._handle_group_members_command(cmd_original)
+        elif canonical == "group-stats":
+            self._handle_group_stats_command(cmd_original)
         elif canonical == "group-leave":
             self._handle_group_leave_command(cmd_original)
         # NUMBERS-FORK-END: cli-dispatch

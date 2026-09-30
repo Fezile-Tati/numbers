@@ -13,7 +13,8 @@ own agent token (the one ``/sign-in`` stores)::
     PATCH  {hub}/api/angel/v1/group-chat/{id}      {name}
     DELETE {hub}/api/angel/v1/group-chat/{id}      {confirmed}
     POST   {hub}/api/angel/v1/group-chat/send      {chat_id, text, confirmed}
-    POST   {hub}/api/angel/v1/group-chat/removemember  {chat_id, username}
+    GET    {hub}/api/angel/v1/group-chat/replies       ?message_id=
+    POST   {hub}/api/angel/v1/group-chat/removemember  {chat_id, username, confirmed}
     POST   {hub}/api/angel/v1/group-chat/invite        {chat_id, username}
     GET    {hub}/api/angel/v1/group-chat/invitations   my pending invites
     POST   {hub}/api/angel/v1/group-chat/respond       {invitation_id, accept}
@@ -281,7 +282,61 @@ def group_delete_message(message_id: str) -> None:
 
 def group_remove_member(chat_id: str, username: str) -> dict:
     return _request("POST", "/api/angel/v1/group-chat/removemember",
-                    body={"chat_id": chat_id, "username": username.lstrip("@")}) or {}
+                    body={"chat_id": chat_id, "username": username.lstrip("@"), "confirmed": True}) or {}
+
+
+def reply_parents(msgs: list[dict]) -> list[tuple[dict, int]]:
+    """Messages in ``msgs`` that have replies, as (message, reply count),
+    the most recently answered first. The count is the server's
+    ``reply_count`` (replies anywhere in the chat), or the replies seen in
+    ``msgs`` when that is larger."""
+    by_id = {m["id"]: m for m in msgs if m.get("id")}
+    seen: dict[str, int] = {}
+    latest: dict[str, str] = {}
+    for m in msgs:
+        parent = m.get("reply_to")
+        if parent in by_id:
+            seen[parent] = seen.get(parent, 0) + 1
+            latest[parent] = max(latest.get(parent, ""), m.get("created_at", ""))
+    out = []
+    for mid, m in by_id.items():
+        n = max(m.get("reply_count") or 0, seen.get(mid, 0))
+        if n:
+            out.append((m, n))
+    out.sort(key=lambda p: latest.get(p[0]["id"]) or p[0].get("created_at", ""), reverse=True)
+    return out
+
+
+def replies_label(n: int) -> str:
+    return f"{n} repl{'y' if n == 1 else 'ies'}"
+
+
+def group_stats_lines(detail: dict) -> list[str]:
+    """/group-stats: the group's description, owner and member numbers."""
+    members = [m for m in detail.get("members") or []
+               if m.get("status") == "active" and not m.get("blocked")]
+    owner_id = detail.get("owner_id")
+    admins = sorted("@" + (m.get("username") or "?") for m in members
+                    if m.get("role") == "admin" and m.get("user_id") != owner_id)
+    owner = "@" + (detail.get("owner_username") or "?")
+    if detail.get("owner_account_type"):
+        owner += f"  ({detail['owner_account_type']})"
+    count = detail.get("member_count")
+    if count is None:
+        count = len(members)
+    cap = detail.get("max_members") or 0
+    lines = [
+        f"  📊 {detail.get('name') or '(unnamed)'}",
+        f"    Description:  {detail.get('description') or '—'}",
+        f"    Owner:        {owner}",
+        f"    Members:      {count}" + (f" / {cap}" if cap else ""),
+        f"    Admins:       {', '.join(admins) if admins else 'none'}",
+    ]
+    if detail.get("my_role"):
+        lines.append(f"    Your role:    {detail['my_role']}")
+    if detail.get("last_activity"):
+        lines.append(f"    Last active:  {_clock(detail['last_activity'])}")
+    return lines
 
 
 # ── Formatting ───────────────────────────────────────────────────────────────

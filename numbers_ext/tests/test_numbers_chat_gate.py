@@ -18,6 +18,7 @@ CHAT_HANDLERS = [
     "_handle_group_create_command",
     "_handle_group_add_command", "_handle_group_remove_command",
     "_handle_group_admins_command", "_handle_group_members_command",
+    "_handle_group_stats_command",
     "_handle_group_leave_command", "_handle_group_rename_command",
     "_handle_group_delete_command", "_handle_msg_edit_command",
     "_handle_msg_delete_command", "_handle_load_more_command",
