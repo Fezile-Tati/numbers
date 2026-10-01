@@ -13164,8 +13164,8 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             self._handle_exit_chat_command(cmd_original)
         elif canonical == "group-create":
             self._handle_group_create_command(cmd_original)
-        elif canonical == "group-rename":
-            self._handle_group_rename_command(cmd_original)
+        elif canonical == "group-edit":
+            self._handle_group_edit_command(cmd_original)
         elif canonical == "group-delete":
             self._handle_group_delete_command(cmd_original)
         elif canonical == "group-add":
@@ -13176,6 +13176,10 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             self._handle_chat_command(cmd_original)
         elif canonical == "inbox":
             self._handle_inbox_command(cmd_original)
+        elif canonical == "inbox-clear":
+            self._handle_inbox_clear_command(cmd_original)
+        elif canonical == "clear-chat":
+            self._handle_clear_chat_command(cmd_original)
         elif canonical == "invites":
             self._handle_invites_command(cmd_original)
         elif canonical == "load-more":
@@ -18349,8 +18353,11 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         # with a provider-specific error the user never chose. Only fires
         # on a real TTY; quiet/single-query paths keep their own handling.
         try:
-            if sys.stdin.isatty() and not self._runtime_credentials_ready():
-                self._offer_first_run_setup()
+            # NUMBERS-FIRSTRUN reason: also asks when no provider/model is chosen
+            # (a stray env key must not skip onboarding), and names a missing key.
+            _numbers_setup_reason = self._first_run_setup_reason() if sys.stdin.isatty() else None
+            if _numbers_setup_reason:
+                self._offer_numbers_setup(_numbers_setup_reason)
         except Exception:
             logger.debug("first-run setup offer failed", exc_info=True)
 

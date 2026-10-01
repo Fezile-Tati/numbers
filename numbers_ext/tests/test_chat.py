@@ -172,6 +172,11 @@ def echo(monkeypatch):
     (lambda: chat.dm_delete("d1"), "POST", "/api/angel/v1/dm/deletemessage",
      {"message_id": "d1", "confirmed": True}),
     (lambda: chat.dm_read_all(), "POST", "/api/angel/v1/dm/read-all", {}),
+    (lambda: chat.dm_inbox_clear(), "POST", "/api/angel/v1/dm/inbox-clear", {}),
+    (lambda: chat.dm_clear("tim"), "POST", "/api/angel/v1/dm/clear",
+     {"with": "tim", "confirmed": True}),
+    (lambda: chat.group_clear("g1"), "POST", "/api/angel/v1/group-chat/clear",
+     {"chat_id": "g1", "confirmed": True}),
 ])
 def test_management_calls_hit_the_right_route(echo, call, method, path, body):
     call()

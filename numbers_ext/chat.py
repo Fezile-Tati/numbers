@@ -33,6 +33,7 @@ calling the same routes through MCP still has to confirm on its own.
 from __future__ import annotations
 
 import json
+import re
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -158,6 +159,25 @@ def dm_read_all() -> None:
     _request("POST", "/api/angel/v1/dm/read-all", body={})
 
 
+def dm_inbox_clear() -> None:
+    """Inbox "clear all / mark as read": every DM is marked read and /inbox
+    lists only conversations with messages received after this."""
+    _request("POST", "/api/angel/v1/dm/inbox-clear", body={})
+
+
+def dm_clear(with_username: str) -> None:
+    """Clear your chat history with one user. Hidden for you only (the other
+    person keeps theirs); nothing is deleted on the server."""
+    _request("POST", "/api/angel/v1/dm/clear",
+             body={"with": with_username, "confirmed": True})
+
+
+def group_clear(chat_id: str) -> None:
+    """Clear your chat history in a group chat (for you only)."""
+    _request("POST", "/api/angel/v1/group-chat/clear",
+             body={"chat_id": chat_id, "confirmed": True})
+
+
 # ── Group chats ──────────────────────────────────────────────────────────────
 
 def list_groups(query: str = "") -> list[dict]:
@@ -233,9 +253,25 @@ def group_create(name: str, members: Optional[list[str]] = None, description: st
     return data.get("group") or data
 
 
-def group_rename(chat_id: str, name: str) -> dict:
+def parse_group_edit(arg: str) -> tuple[Optional[str], Optional[str]]:
+    """``/group-edit`` argument -> (name, description); None keeps the value.
+
+    ``Elders | Weekly prayer`` sets both, ``Elders`` only the name,
+    ``| Weekly prayer`` only the description and ``Elders |`` clears it.
+    """
+    name, bar, desc = arg.partition("|")
+    return (name.strip() or None), (desc.strip() if bar else None)
+
+
+def group_edit(chat_id: str, name: Optional[str] = None, description: Optional[str] = None) -> dict:
+    """Owner only. A field left as None keeps its value; "" clears the description."""
+    body = {}
+    if name is not None:
+        body["name"] = name
+    if description is not None:
+        body["description"] = description
     return _request("PATCH", "/api/angel/v1/group-chat/" + urllib.parse.quote(chat_id, safe=""),
-                    body={"name": name}) or {}
+                    body=body) or {}
 
 
 def group_delete(chat_id: str) -> None:
@@ -363,7 +399,7 @@ def inbox_label(t: dict) -> str:
     unread = "  ● unread" if t.get("unread") else ""
     if t.get("read_only"):
         unread += "  (read-only)"
-    last = (t.get("last_message") or "").replace("\n", " ")
+    last = display_text(t.get("last_message") or "").replace("\n", " ")
     if len(last) > 40:
         last = last[:39] + "…"
     return f"@{t.get('with_username') or '?'}{unread}  [{_clock(t.get('updated_at', ''))}] {last}"
@@ -373,8 +409,18 @@ def member_label(m: dict) -> str:
     return f"@{m.get('username') or '?'}  ({m.get('role') or 'member'})"
 
 
+_STICKER_RE = re.compile(r"^/?img/(Custom-Emoji/)?icon-chat\d+\.(webp|png)$", re.IGNORECASE)
+
+
+def display_text(text: str) -> str:
+    """Message text for the terminal. A custom emoji sent from the web popup is
+    an image path (/img/Custom-Emoji/icon-chatN.webp); show it as [emoji]."""
+    text = text or ""
+    return "[emoji]" if _STICKER_RE.match(text.strip()) else text
+
+
 def message_label(m: dict) -> str:
-    text = (m.get("text") or "").replace("\n", " ")
+    text = display_text(m.get("text") or "").replace("\n", " ")
     if len(text) > 60:
         text = text[:59] + "…"
     return f"[{_clock(m.get('created_at', ''))}] {text}"
@@ -426,7 +472,7 @@ def format_message(m: dict) -> str:
     tag = "you" if m.get("mine") else "@" + (m.get("from") or "?")
     edited = " (edited)" if m.get("edited") else ""
     mention = "  🔔 mentions you" if m.get("mentions_you") and not m.get("mine") else ""
-    line = f"  [{_clock(m.get('created_at', ''))}] {tag}: {m.get('text', '')}{edited}{mention}"
+    line = f"  [{_clock(m.get('created_at', ''))}] {tag}: {display_text(m.get('text', ''))}{edited}{mention}"
     preview = m.get("reply_preview")
     if preview:
         who = f"@{preview['from']}: " if preview.get("from") else ""

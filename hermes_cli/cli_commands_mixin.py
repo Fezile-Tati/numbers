@@ -5020,19 +5020,60 @@ class CLICommandsMixin:
             _cprint("  No messages received yet. Start one with /chat.")
             return
         unread = sum(1 for t in threads if t.get("unread"))
-        entries = []
-        if unread:
-            entries.append((f"✓ Mark all read ({unread} unread)", None))
+        clear_label = "✓ Clear all / mark as read" + (f" ({unread} unread)" if unread else "")
+        entries = [(clear_label, None)]
         entries += [(chat.inbox_label(t), t.get("with_username")) for t in threads]
 
         def _open(username) -> None:
             if username is None:
-                if self._numbers_chat_call(chat.dm_read_all)[0]:
-                    _cprint("  ✓ All direct messages marked read.")
+                self._numbers_inbox_clear()
                 return
             self._numbers_enter_chat("dm", username, username)
 
         self._numbers_pick("📥 Inbox", "Select a conversation", entries, _open)
+
+    def _numbers_inbox_clear(self) -> None:
+        """Mark every DM read and empty the inbox; only conversations with a
+        message received after this show up in /inbox again."""
+        from cli import _cprint
+        from numbers_ext import chat
+
+        if self._numbers_chat_call(chat.dm_inbox_clear)[0]:
+            _cprint("  ✓ Inbox cleared and all direct messages marked read. New messages will show here.")
+
+    def _handle_inbox_clear_command(self, command: str) -> None:
+        if not self._numbers_require_signin():
+            return
+        self._numbers_inbox_clear()
+
+    def _handle_clear_chat_command(self, command: str) -> None:
+        """Clear the open chat's history for you only (server-side, survives
+        restarts). The other people keep theirs; nothing is deleted."""
+        from cli import _cprint
+        from numbers_ext import chat
+
+        if not self._numbers_require_signin():
+            return
+        target = getattr(self, "_numbers_chat_target", None)
+        if not target:
+            _cprint("  Open a chat first with /chat or /inbox.")
+            return
+        where = f"your DM with @{target['label']}" if target["kind"] == "dm" else f"group chat {target['label']}"
+        choices = [
+            ("clear", "Clear for me", "Hide every message so far, for you only. "
+                                      "The other people keep the history."),
+            ("cancel", "Cancel", "Keep the history."),
+        ]
+        answer = self._numbers_choice(title=f"Clear {where}?", detail="New messages will still show.", choices=choices)
+        if answer != "clear":
+            _cprint("  Clear cancelled.")
+            return
+        fn = chat.dm_clear if target["kind"] == "dm" else chat.group_clear
+        if self._numbers_chat_call(fn, target["id"])[0]:
+            target.pop("thread", None)
+            target["oldest_id"], target["has_more"] = "", False
+            _cprint("  ✓ Chat history cleared for you.")
+            self._invalidate(min_interval=0.0)
 
     # --- existing chat commands -----------------------------------------------
 
@@ -5308,7 +5349,7 @@ class CLICommandsMixin:
             _cprint(f"  ✓ Left {target['label']}.")
             self._numbers_close_chat_quietly()
 
-    def _handle_group_rename_command(self, command: str) -> None:
+    def _handle_group_edit_command(self, command: str) -> None:
         from cli import _cprint
         from numbers_ext import chat
 
@@ -5317,15 +5358,22 @@ class CLICommandsMixin:
         target = self._numbers_require_group()
         if not target:
             return
-        name = self._numbers_arg(command)
-        if not name:
-            _cprint("  Usage: /group-rename <new name>")
+        name, description = chat.parse_group_edit(self._numbers_arg(command))
+        if name is None and description is None:
+            _cprint("  Usage: /group-edit <name> | <description>")
+            _cprint("         /group-edit <name>            rename only")
+            _cprint("         /group-edit | <description>   description only")
+            _cprint("         /group-edit <name> |          rename and clear the description")
             return
-        ok, group = self._numbers_chat_call(chat.group_rename, target["id"], name)
-        if ok:
-            target["label"] = group.get("name", name)
-            _cprint(f"  ✓ Renamed to {target['label']}.")
-            self._invalidate(min_interval=0.0)
+        ok, group = self._numbers_chat_call(chat.group_edit, target["id"], name, description)
+        if not ok:
+            return
+        target["label"] = group.get("name") or name or target["label"]
+        if name is not None:
+            _cprint(f"  ✓ Name: {target['label']}")
+        if description is not None:
+            _cprint(f"  ✓ Description: {group.get('description') or description or '(cleared)'}")
+        self._invalidate(min_interval=0.0)
 
     def _handle_group_delete_command(self, command: str) -> None:
         from cli import _cprint
@@ -5337,7 +5385,8 @@ class CLICommandsMixin:
         if not target:
             return
         choices = [
-            ("once", "Delete", f"Delete {target['label']} for every member. This cannot be undone."),
+            ("once", "Delete", f"Delete {target['label']} with all its messages and replies, for every member. "
+                               "This cannot be undone."),
             ("cancel", "Cancel", "Keep the group chat."),
         ]
         answer = self._numbers_choice(
@@ -5349,13 +5398,68 @@ class CLICommandsMixin:
             _cprint("  Delete cancelled.")
             return
         if self._numbers_chat_call(chat.group_delete, target["id"])[0]:
-            _cprint(f"  ✓ Deleted {target['label']}.")
+            _cprint(f"  ✓ Deleted Group & Replies: {target['label']}.")
             self._numbers_close_chat_quietly()
 
     # --- /msg-edit and /msg-delete: your own messages in the open chat --------
 
-    def _numbers_pick_own_message(self, title: str, on_select) -> None:
-        self._numbers_pick_message(title, on_select, only_mine=True)
+    OWN_PAGE = 30          # own messages listed per /msg-edit or /msg-delete page
+    OWN_SCAN_PAGES = 40    # safety cap on server pages scanned for one listing
+
+    def _numbers_collect_own(self, target: dict, before: str = "") -> tuple:
+        """Up to OWN_PAGE of the caller's own, not-deleted messages, newest first,
+        starting before message id 'before'. Returns (msgs, next_before, has_more)."""
+        from numbers_ext import chat
+
+        mine, cursor, more = [], before, True
+        for _ in range(self.OWN_SCAN_PAGES):
+            data = self._numbers_fetch_page(target, chat.HISTORY_PAGE, cursor) or {}
+            msgs = data.get("messages") or []
+            for m in reversed(msgs):  # pages are oldest first; walk newest first
+                if m.get("id") and m.get("mine") and not m.get("deleted"):
+                    mine.append(m)
+            nxt = data.get("next_before") or (msgs[0].get("id", "") if msgs else "")
+            more = bool(data.get("has_more")) and bool(nxt) and nxt != cursor
+            cursor = nxt
+            if len(mine) >= self.OWN_PAGE or not more:
+                break
+        if len(mine) > self.OWN_PAGE:
+            # Resume the next listing right after the last one shown.
+            mine, cursor, more = mine[:self.OWN_PAGE], mine[self.OWN_PAGE - 1]["id"], True
+        return mine, cursor, more
+
+    def _numbers_pick_own_message(self, title: str, on_select, before: str = "") -> None:
+        """Any of your own messages in the open chat: the 30 most recent, then
+        "Load 30 older" pulls the next 30 (not only the latest messages)."""
+        from cli import _cprint
+        from numbers_ext import chat
+
+        if not self._numbers_require_signin():
+            return
+        target = getattr(self, "_numbers_chat_target", None)
+        if not target:
+            _cprint("  Open a chat first with /chat.")
+            return
+        ok, result = self._numbers_chat_call(self._numbers_collect_own, target, before)
+        if not ok:
+            return
+        mine, next_before, has_more = result
+        if not mine:
+            _cprint("  You have no older messages here." if before else "  You haven't sent any messages here.")
+            return
+        more = "__more__"
+        entries = [(f"you: {chat.message_label(m)}", m) for m in mine]
+        if has_more:
+            entries.append(("⟳ Load 30 older…", more))
+        hint = "Select one of your messages" + (" (older)" if before else "")
+
+        def _pick(m) -> None:
+            if m == more:
+                self._numbers_pick_own_message(title, on_select, next_before)
+                return
+            on_select(target, m)
+
+        self._numbers_pick(title, hint, entries, _pick)
 
     def _numbers_pick_message(self, title: str, on_select, only_mine: bool = False,
                               group_only: bool = False) -> None:

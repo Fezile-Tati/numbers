@@ -177,6 +177,44 @@ def test_group_create_takes_the_description_after_a_bar(printed, monkeypatch):
     assert created == [("Elders", "Weekly prayer")]
 
 
+@pytest.mark.parametrize("arg, want", [
+    ("Elders | Weekly prayer", ("Elders", "Weekly prayer")),
+    ("Elders", ("Elders", None)),
+    ("| Weekly prayer", (None, "Weekly prayer")),
+    ("Elders |", ("Elders", "")),
+    ("", (None, None)),
+])
+def test_parse_group_edit(arg, want):
+    assert chat.parse_group_edit(arg) == want
+
+
+def test_group_edit_sets_name_and_description_together(printed, monkeypatch):
+    edits = []
+
+    def _edit(cid, name, desc):
+        edits.append((cid, name, desc))
+        return {"name": name or "Test-group", "description": desc}
+
+    monkeypatch.setattr(chat, "group_edit", _edit)
+    cli = _FakeCLI()
+    cli._handle_group_edit_command("/group-edit Elders | Weekly prayer")
+    assert edits == [("g1", "Elders", "Weekly prayer")]
+    assert cli._numbers_chat_target["label"] == "Elders"
+    assert any("Description: Weekly prayer" in line for line in printed)
+
+    cli._handle_group_edit_command("/group-edit")
+    assert len(edits) == 1 and any("Usage: /group-edit" in line for line in printed)
+
+
+def test_group_delete_says_messages_and_replies_went_too(printed, monkeypatch):
+    monkeypatch.setattr(chat, "group_delete", lambda cid: None)
+    cli = _FakeCLI()
+    cli._numbers_close_chat_quietly = lambda: None
+    cli.answer = "once"
+    cli._handle_group_delete_command("/group-delete")
+    assert "  ✓ Deleted Group & Replies: Test-group." in printed
+
+
 def test_group_stats_lines():
     lines = chat.group_stats_lines({
         "name": "Test-group", "description": "Weekly prayer", "owner_id": "u1",
@@ -200,3 +238,75 @@ def test_reply_parents_counts_and_orders_by_latest_reply():
     reply_b = {"id": "c", "reply_to": "b", "created_at": "2026-09-30T11:00:00Z"}
     got = chat.reply_parents([newer, older, reply_b])
     assert [(m["id"], n) for m, n in got] == [("b", 1), ("a", 3)]
+
+
+def _own(i):
+    """Own message i (higher = newer)."""
+    return {"id": f"o{i}", "from": "max", "text": f"mine {i}", "mine": True,
+            "created_at": "2026-09-30T10:00:00Z"}
+
+
+def test_msg_edit_lists_30_own_messages_then_loads_older(printed, monkeypatch):
+    # 45 own messages interleaved with others, served 50 per page oldest first.
+    history = []
+    for i in range(1, 46):
+        history.append({"id": f"x{i}", "from": "tim", "text": "theirs"})
+        history.append(_own(i))
+    calls = []
+
+    def _page(kind, chat_id, limit, before=""):
+        calls.append(before)
+        end = len(history) if not before else next(k for k, m in enumerate(history) if m["id"] == before)
+        start = max(0, end - limit)
+        chunk = history[start:end]
+        return {"messages": chunk, "has_more": start > 0, "next_before": chunk[0]["id"] if chunk else ""}
+
+    monkeypatch.setattr(chat, "page", _page)
+    edits = []
+    monkeypatch.setattr(chat, "group_edit_message", lambda mid, text: edits.append((mid, text)) or {})
+    cli = _FakeCLI()
+    cli.pick = 30  # the "Load 30 older" entry on the first page
+    first = []
+    orig = cli._numbers_pick
+
+    def _pick(title, hint, entries, on_select):
+        first.append(entries)
+        if len(first) == 2:
+            cli.pick = len(entries) - 1  # oldest own message on the second page
+        orig(title, hint, entries, on_select)
+
+    cli._numbers_pick = _pick
+    cli._handle_msg_edit_command("/msg-edit")
+    page1, page2 = first
+    assert len(page1) == 31 and page1[-1][0].startswith("⟳ Load 30 older")
+    assert page1[0][1]["id"] == "o45"  # newest first
+    assert page1[29][1]["id"] == "o16"
+    assert [e[1]["id"] for e in page2] == [f"o{i}" for i in range(15, 0, -1)]  # the remaining 15, no "more"
+    cli._numbers_chat_intercept("edited old one")
+    assert edits == [("o1", "edited old one")]
+
+
+def test_clear_chat_asks_then_clears_for_me(printed, monkeypatch):
+    cleared = []
+    monkeypatch.setattr(chat, "group_clear", lambda cid: cleared.append(cid))
+    cli = _FakeCLI()
+    cli.answer = "cancel"
+    cli._handle_clear_chat_command("/clear-chat")
+    assert cleared == [] and any("Clear cancelled." in line for line in printed)
+    cli.answer = "clear"
+    cli._handle_clear_chat_command("/clear-chat")
+    assert cleared == ["g1"]
+    assert any("cleared for you" in line for line in printed)
+
+
+def test_inbox_clear_all_is_always_offered(printed, monkeypatch):
+    monkeypatch.setattr(chat, "dm_inbox", lambda: [
+        {"with_username": "tim", "last_message": "hi", "unread": False, "updated_at": "2026-09-30T10:25:00Z"}])
+    done = []
+    monkeypatch.setattr(chat, "dm_inbox_clear", lambda: done.append(True))
+    cli = _FakeCLI()
+    cli.pick = 0
+    cli._handle_inbox_command("/inbox")
+    title, hint, entries = cli.pickers[0]
+    assert entries[0][0].startswith("✓ Clear all / mark as read")
+    assert done == [True]

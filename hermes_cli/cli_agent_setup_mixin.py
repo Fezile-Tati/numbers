@@ -316,6 +316,88 @@ class CLIAgentSetupMixin:
         _cprint("  Provider setup didn't complete. Run 'numbers model' to retry.")
         return False
 
+    # NUMBERS-FORK-BEGIN: first-run-setup
+    # --- NUMBERS P13: startup asks whenever no provider is really set up ------
+    # Upstream only offers setup when no provider can be resolved at all, so a
+    # stray env key (Windows "Gemini_API_Key") let `auto` pick Gemini and skip
+    # onboarding with no model, and a chosen provider missing its key got the
+    # generic full picker. cli.py's startup check calls these instead
+    # (apply_overlay.ps1 step 4e; logged: hermes-patches.md P13).
+
+    def _first_run_setup_reason(self) -> str | None:
+        """Why startup must offer provider setup, or None when it's ready.
+
+        "unconfigured": no provider chosen (unset or auto) and no model, from
+        config.yaml or --provider/-m, even when `auto` could resolve one from
+        an env key. "missing_credentials": a provider is chosen but
+        _runtime_credentials_ready() is False. `auto` with a model but nothing
+        that resolves is "unconfigured": there is no provider to name.
+        """
+        provider = (self.requested_provider or "").strip().lower()
+        chosen = provider not in {"", "auto"}
+        if not chosen and not (self.model or "").strip():
+            return "unconfigured"
+        if self._runtime_credentials_ready():
+            return None
+        return "missing_credentials" if chosen else "unconfigured"
+
+    def _offer_numbers_setup(self, reason: str) -> bool:
+        """Startup setup offer for ``reason``; True when a provider is ready."""
+        if reason != "missing_credentials":
+            return self._offer_first_run_setup()
+
+        from cli import _cprint, logger
+        from hermes_cli.auth import PROVIDER_REGISTRY
+
+        provider_id = (self.requested_provider or "").strip().lower()
+        pconfig = PROVIDER_REGISTRY.get(provider_id)
+        if not (pconfig and pconfig.auth_type == "api_key" and pconfig.api_key_env_vars):
+            # OAuth, custom or unknown providers: the shared picker handles them.
+            _cprint("")
+            _cprint(f"⚕ {pconfig.name if pconfig else provider_id} is selected but has no working credentials.")
+            return self._offer_first_run_setup()
+
+        key_env = pconfig.api_key_env_vars[0]
+        _cprint("")
+        _cprint(f"⚕ {pconfig.name} is selected but {key_env} is not set.")
+        try:
+            answer = input(f"  Enter your {pconfig.name} API key now? [Y/n]: ").strip().lower()
+        except (KeyboardInterrupt, EOFError):
+            print()
+            answer = "n"
+        if answer in {"n", "no"}:
+            _cprint("  Skipped. Run 'numbers model' or 'numbers setup' any time.")
+            return False
+
+        try:
+            from hermes_cli.config import load_config
+            from hermes_cli.model_setup_flows import _model_flow_api_key_provider
+            # The step `numbers model` runs for this provider after its picker:
+            # asks for and saves the key, then confirms the model.
+            _model_flow_api_key_provider(load_config(), provider_id, self.model or "")
+            model_cfg = load_config().get("model") or {}
+            if isinstance(model_cfg, dict):
+                self.model = (model_cfg.get("default") or model_cfg.get("model") or self.model or "").strip()
+        except (KeyboardInterrupt, EOFError, SystemExit):
+            print()
+            _cprint("  Setup cancelled. Run 'numbers model' any time.")
+            return False
+        except Exception as exc:
+            logger.debug("first-run key setup failed: %s", exc)
+            _cprint(f"  ⚠️  Key setup failed: {exc}")
+            _cprint("  Run 'numbers model' to try again.")
+            return False
+
+        # Force credential re-resolution + agent rebuild on next use.
+        self.agent = None
+        self._active_agent_route_signature = None
+        if self._runtime_credentials_ready():
+            _cprint(f"  ✓ {pconfig.name} configured — you're ready to chat.")
+            return True
+        _cprint("  Key setup didn't complete. Run 'numbers model' to retry.")
+        return False
+    # NUMBERS-FORK-END: first-run-setup
+
     def _resolve_turn_agent_config(self, user_message: str) -> dict:
         """Build the effective model/runtime config for a single user turn.
 
