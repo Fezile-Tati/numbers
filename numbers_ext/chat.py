@@ -9,8 +9,8 @@ own agent token (the one ``/sign-in`` stores)::
     GET    {hub}/api/angel/v1/group-chat?q=        my groups
     GET    {hub}/api/angel/v1/group-chat/{id}      details + members
     GET    {hub}/api/angel/v1/group-chat/messages  ?chat_id=&limit=&before=
-    POST   {hub}/api/angel/v1/group-chat           {name, members}
-    PATCH  {hub}/api/angel/v1/group-chat/{id}      {name}
+    POST   {hub}/api/angel/v1/group-chat           {name, description, members}
+    PATCH  {hub}/api/angel/v1/group-chat/{id}      {name?, description?}
     DELETE {hub}/api/angel/v1/group-chat/{id}      {confirmed}
     POST   {hub}/api/angel/v1/group-chat/send      {chat_id, text, confirmed}
     GET    {hub}/api/angel/v1/group-chat/replies       ?message_id=
@@ -21,10 +21,13 @@ own agent token (the one ``/sign-in`` stores)::
     POST   {hub}/api/angel/v1/group-chat/leave         {chat_id, confirmed}
     POST   {hub}/api/angel/v1/group-chat/role          {chat_id, username, role}
     POST   {hub}/api/angel/v1/group-chat/edit | deletemessage
+    POST   {hub}/api/angel/v1/group-chat/clear         {chat_id, confirmed}   for me only
     GET    {hub}/api/angel/v1/dm                       inbox
-    POST   {hub}/api/angel/v1/dm/edit | deletemessage | read-all
+    POST   {hub}/api/angel/v1/dm/edit | deletemessage
+    POST   {hub}/api/angel/v1/dm/clear                 {with, confirmed}      for me only
+    POST   {hub}/api/angel/v1/dm/inbox-clear           {confirmed}
 
-Sends, edits, deletes, invites, invite answers, admin changes and leaving pass
+Sends, edits, deletes, clears, invites, invite answers, admin changes and leaving pass
 ``confirmed: true``: in the CLI a human typed the message or picked the action,
 which is exactly the confirmation the server's confirmation class asks for. An agent
 calling the same routes through MCP still has to confirm on its own.
@@ -155,14 +158,11 @@ def dm_delete(message_id: str) -> None:
              body={"message_id": message_id, "confirmed": True})
 
 
-def dm_read_all() -> None:
-    _request("POST", "/api/angel/v1/dm/read-all", body={})
-
-
 def dm_inbox_clear() -> None:
     """Inbox "clear all / mark as read": every DM is marked read and /inbox
-    lists only conversations with messages received after this."""
-    _request("POST", "/api/angel/v1/dm/inbox-clear", body={})
+    lists only conversations with messages received after this. The user
+    picked it, so it goes out confirmed."""
+    _request("POST", "/api/angel/v1/dm/inbox-clear", body={"confirmed": True})
 
 
 def dm_clear(with_username: str) -> None:
