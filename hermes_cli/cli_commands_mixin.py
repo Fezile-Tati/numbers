@@ -5224,8 +5224,6 @@ class CLICommandsMixin:
         owner = detail.get("owner_id")
         members = [m for m in detail.get("members") or []
                    if m.get("user_id") != owner and m.get("status") == "active" and not m.get("blocked")]
-        if role == "admin":  # admins manage regular members only
-            members = [m for m in members if m.get("role") != "admin"]
         if not members:
             _cprint("  Nobody you can remove.")
             return
@@ -5258,8 +5256,8 @@ class CLICommandsMixin:
         detail = self._numbers_group_detail(target)
         if detail is None:
             return
-        if detail.get("my_role") != "owner":
-            _cprint("  Only the group owner can choose admins.")
+        if detail.get("my_role") not in ("owner", "admin"):
+            _cprint("  Only the group owner or an admin can choose admins.")
             return
         owner = detail.get("owner_id")
         members = [m for m in detail.get("members") or []
@@ -5391,7 +5389,7 @@ class CLICommandsMixin:
         ]
         answer = self._numbers_choice(
             title=f"Delete group chat {target['label']}?",
-            detail="Only the owner can delete a group chat.",
+            detail="Only the owner or an admin can delete a group chat.",
             choices=choices,
         )
         if answer != "once":

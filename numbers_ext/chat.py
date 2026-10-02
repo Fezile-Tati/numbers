@@ -268,7 +268,7 @@ def parse_group_edit(arg: str) -> tuple[Optional[str], Optional[str]]:
 
 
 def group_edit(chat_id: str, name: Optional[str] = None, description: Optional[str] = None) -> dict:
-    """Owner only. A field left as None keeps its value; "" clears the description."""
+    """Owner or admin. A field left as None keeps its value; "" clears the description."""
     body = {}
     if name is not None:
         body["name"] = name
@@ -284,7 +284,7 @@ def group_delete(chat_id: str) -> None:
 
 
 def group_invite(chat_id: str, username: str) -> dict:
-    """Invite an associate (owner or admin). ``already_member`` /
+    """Invite an associate (owner/admin). ``already_member`` /
     ``already_invited`` are set instead of sending a second invite."""
     return _request("POST", "/api/angel/v1/group-chat/invite",
                     body={"chat_id": chat_id, "username": username.lstrip("@"), "confirmed": True}) or {}
@@ -304,7 +304,7 @@ def group_leave(chat_id: str) -> None:
 
 
 def group_set_role(chat_id: str, username: str, role: str) -> dict:
-    """Owner only: role is "admin" or "member" (max 2 admins per group)."""
+    """Owner or admin: role is "admin" or "member" (max 2 admins per group)."""
     return _request("POST", "/api/angel/v1/group-chat/role",
                     body={"chat_id": chat_id, "username": username.lstrip("@"), "role": role,
                           "confirmed": True}) or {}

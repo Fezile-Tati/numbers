@@ -159,11 +159,35 @@ def test_group_remove_asks_first_and_skips_inactive_rows(printed, monkeypatch):
     cli = _FakeCLI()
     cli._handle_group_remove_command("/group-remove")
     _title, _hint, entries = cli.pickers[0]
-    assert [v for _l, v in entries] == ["tim"]  # not the owner, another admin or a blocked row
+    assert [v for _l, v in entries] == ["tim", "gid"]  # admins remove admins too; never the owner or a blocked row
     assert removed == []  # the confirmation said no
     cli.answer = "remove"
     cli._handle_group_remove_command("/group-remove")
     assert removed == ["tim"]
+
+
+def test_admins_choose_admins_like_the_owner(printed, monkeypatch):
+    detail = {"id": "g1", "owner_id": "u1", "my_role": "admin", "members": [
+        {"user_id": "u1", "username": "max", "role": "owner", "status": "active"},
+        {"user_id": "u2", "username": "tim", "role": "member", "status": "active"},
+    ]}
+    monkeypatch.setattr(chat, "group_read", lambda cid: detail)
+    roles = []
+    monkeypatch.setattr(chat, "group_set_role", lambda cid, u, r: roles.append((u, r)) or {})
+    cli = _FakeCLI()
+    cli._handle_group_admins_command("/group-admins")
+    assert roles == [("tim", "admin")]  # the owner is never offered
+
+    detail["my_role"] = "member"
+    cli._handle_group_admins_command("/group-admins")
+    assert len(roles) == 1 and "  Only the group owner or an admin can choose admins." in printed
+
+
+def test_group_management_help_names_owner_and_admin():
+    from hermes_cli.commands import resolve_command
+    assert resolve_command("group-edit").description ==         "Rename the open group chat and/or change its description (owner/admin only)"
+    assert resolve_command("group-delete").description ==         "Delete the open group chat with all its messages and replies (owner/admin only)"
+    assert resolve_command("group-add").description == "Invite an associate to the open group chat (owner/admin)"
 
 
 def test_group_create_takes_the_description_after_a_bar(printed, monkeypatch):
