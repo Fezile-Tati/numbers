@@ -105,6 +105,40 @@ def test_format_message_uses_mine_flag():
     assert "[--:--]" in line  # no timestamp is shown, not crashed on
 
 
+def test_format_message_shows_media_badge_and_links(monkeypatch):
+    monkeypatch.setattr(chat, "_hub_base", lambda: "https://hub.example/")
+    m = {"from": "deborah", "text": "look 🙏", "edited": True, "media": [
+        {"type": "image", "url": "/uploads/a.webp"},
+        {"type": "file", "url": "/uploads/c.pdf", "name": "notes.pdf"},
+        {"type": "audio", "url": "https://cdn.example/v.webm"},
+        {"type": "sticker"},
+    ]}
+    first, *links = chat.format_message(m).split("\n")
+    assert first.endswith("@deborah: look 🙏 (edited) (contains media)")
+    assert links == [
+        "      ↳ image: https://hub.example/uploads/a.webp",
+        "      ↳ file (notes.pdf): https://hub.example/uploads/c.pdf",
+        "      ↳ audio: https://cdn.example/v.webm",
+    ]
+
+
+def test_media_only_messages_name_what_they_hold():
+    sticker = {"from": "a", "text": "", "media": [{"type": "sticker"}]}
+    assert chat.format_message(sticker).endswith("@a: [custom emoji] (contains media)")
+    assert chat.message_label(dict(sticker, text="")).endswith("[custom emoji] 📎")
+    # an older server sends the sticker path as text
+    assert chat.format_message({"from": "a", "text": "/img/Custom-Emoji/icon-chat4.webp"}).endswith("@a: [custom emoji]")
+    assert chat.inbox_label({"with_username": "a", "last_message": "", "last_has_media": True}).endswith("[media] 📎")
+    assert chat.inbox_label({"with_username": "a", "last_message": "hi", "last_has_media": True}).endswith("hi 📎")
+
+
+def test_control_characters_never_reach_the_terminal():
+    m = {"from": "x", "text": "hi\x1b[31m red\x07", "reply_preview": {"from": "y", "text": "\x1b]0;pwn\x07ok"}}
+    out = chat.format_message(m)
+    assert "\x1b" not in out and "\x07" not in out
+    assert out.split("\n")[0].endswith("@y: ]0;pwnok")
+
+
 # --- management endpoints (invites, admins, leave, edit/delete) ------------
 
 class _EchoHub(BaseHTTPRequestHandler):

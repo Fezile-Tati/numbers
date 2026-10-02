@@ -27,6 +27,10 @@ own agent token (the one ``/sign-in`` stores)::
     POST   {hub}/api/angel/v1/dm/clear                 {with, confirmed}      for me only
     POST   {hub}/api/angel/v1/dm/inbox-clear           {confirmed}
 
+Messages are read as text only. The server moves rich media out of ``text``
+into ``media`` ([{type, url, name}]); the CLI shows a ``(contains media)``
+badge and a browser link per attachment, and drops custom emoji.
+
 Sends, edits, deletes, clears, invites, invite answers, admin changes and leaving pass
 ``confirmed: true``: in the CLI a human typed the message or picked the action,
 which is exactly the confirmation the server's confirmation class asks for. An agent
@@ -402,6 +406,8 @@ def inbox_label(t: dict) -> str:
     last = display_text(t.get("last_message") or "").replace("\n", " ")
     if len(last) > 40:
         last = last[:39] + "…"
+    if t.get("last_has_media"):
+        last = f"{last} 📎" if last else "[media] 📎"
     return f"@{t.get('with_username') or '?'}{unread}  [{_clock(t.get('updated_at', ''))}] {last}"
 
 
@@ -410,20 +416,56 @@ def member_label(m: dict) -> str:
 
 
 _STICKER_RE = re.compile(r"^/?img/(Custom-Emoji/)?icon-chat\d+\.(webp|png)$", re.IGNORECASE)
+# C0/C1 control characters except tab and newline. Lines are printed as ANSI,
+# so an ESC in message text could otherwise restyle the terminal.
+_CONTROL_RE = re.compile(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]")
 
 
 def display_text(text: str) -> str:
-    """Message text for the terminal. A custom emoji sent from the web popup is
-    an image path (/img/Custom-Emoji/icon-chatN.webp); show it as [emoji]."""
-    text = text or ""
-    return "[emoji]" if _STICKER_RE.match(text.strip()) else text
+    """Message text for the terminal, without control characters. The server
+    moves media out of the text (see ``media``); an older server sends a custom
+    emoji as its image path (/img/Custom-Emoji/icon-chatN.webp), shown as
+    [custom emoji]."""
+    text = _CONTROL_RE.sub("", text or "")
+    return "[custom emoji]" if _STICKER_RE.match(text.strip()) else text
+
+
+def media_url(url: str) -> str:
+    """A media link to paste into a browser: root-relative server paths
+    (/uploads/x.webp) get the Intersession host; absolute URLs are kept."""
+    url = _CONTROL_RE.sub("", url or "").strip()
+    if not url or "://" in url:
+        return url
+    return _hub_base().rstrip("/") + "/" + url.lstrip("/")
+
+
+def media_lines(m: dict) -> list[str]:
+    """One link line per media item. Custom emoji (stickers) have no link."""
+    lines = []
+    for ref in m.get("media") or []:
+        if ref.get("type") == "sticker" or not ref.get("url"):
+            continue
+        name = f" ({display_text(ref['name'])})" if ref.get("name") else ""
+        lines.append(f"      ↳ {ref.get('type') or 'media'}{name}: {media_url(ref['url'])}")
+    return lines
+
+
+def _text_or_media(m: dict) -> str:
+    """The message text; a media-only message says what it holds."""
+    text = display_text(m.get("text") or "")
+    if text.strip() or not m.get("media"):
+        return text
+    if all(r.get("type") == "sticker" for r in m["media"]):
+        return "[custom emoji]"
+    return "[media]"
 
 
 def message_label(m: dict) -> str:
-    text = display_text(m.get("text") or "").replace("\n", " ")
+    text = _text_or_media(m).replace("\n", " ")
     if len(text) > 60:
         text = text[:59] + "…"
-    return f"[{_clock(m.get('created_at', ''))}] {text}"
+    clip = " 📎" if m.get("media") else ""
+    return f"[{_clock(m.get('created_at', ''))}] {text}{clip}"
 
 
 def _clock(ts: str) -> str:
@@ -468,13 +510,19 @@ def format_history(msgs: list[dict], *, prev_ts: str = "") -> list[str]:
 
 
 def format_message(m: dict) -> str:
-    """One chat line. The server flags the caller's own messages ``mine``."""
+    """One chat line. The server flags the caller's own messages ``mine``.
+    A message with media gets a ``(contains media)`` badge and one link line
+    per attachment below it (custom emoji are dropped)."""
     tag = "you" if m.get("mine") else "@" + (m.get("from") or "?")
     edited = " (edited)" if m.get("edited") else ""
+    media = " (contains media)" if m.get("media") else ""
     mention = "  🔔 mentions you" if m.get("mentions_you") and not m.get("mine") else ""
-    line = f"  [{_clock(m.get('created_at', ''))}] {tag}: {display_text(m.get('text', ''))}{edited}{mention}"
+    line = f"  [{_clock(m.get('created_at', ''))}] {tag}: {_text_or_media(m)}{edited}{media}{mention}"
+    links = media_lines(m)
+    if links:
+        line = "\n".join([line, *links])
     preview = m.get("reply_preview")
     if preview:
-        who = f"@{preview['from']}: " if preview.get("from") else ""
-        line = f"    ↪ {who}{preview.get('text', '')}\n{line}"
+        who = f"@{display_text(preview['from'])}: " if preview.get("from") else ""
+        line = f"    ↪ {who}{display_text(preview.get('text', ''))}\n{line}"
     return line
