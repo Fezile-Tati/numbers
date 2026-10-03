@@ -81,9 +81,10 @@ def test_reply_arms_the_composer_and_the_next_line_is_the_reply(printed, sent, m
     assert sent[-1] == ("g1", "and everyone", "")
 
 
-def test_replies_lists_only_messages_with_replies_then_threads(printed, sent, monkeypatch):
+def test_replies_lists_only_messages_with_replies_then_reads_them(printed, sent, monkeypatch):
     monkeypatch.setattr(chat, "group_messages", lambda *a, **k: [PARENT, REPLY, LONE])
-    monkeypatch.setattr(chat, "group_replies", lambda mid: (PARENT, [REPLY]))
+    monkeypatch.setattr(chat, "group_replies_page",
+                        lambda mid, limit=30, before="", nested=False: {"parent": PARENT, "replies": [REPLY]})
     cli = _FakeCLI()
     cli._handle_replies_command("/replies")
 
@@ -93,10 +94,10 @@ def test_replies_lists_only_messages_with_replies_then_threads(printed, sent, mo
     assert cli._numbers_chat_target["thread"]["id"] == "p1"
     assert any("hi tim" in line for line in printed)
 
-    # In the thread, every line replies to the parent until /exit-reply.
+    # The view is read-only: typing sends nothing until /exit-reply.
     cli._numbers_chat_intercept("amen")
-    cli._numbers_chat_intercept("amen again")
-    assert sent == [("g1", "amen", "p1"), ("g1", "amen again", "p1")]
+    assert sent == []
+    assert any("/exit-reply to go back" in line for line in printed)
     cli._handle_exit_reply_command("/exit-reply")
     assert "thread" not in cli._numbers_chat_target
     cli._numbers_chat_intercept("back to the group")
@@ -278,7 +279,8 @@ def test_msg_edit_lists_30_own_messages_then_loads_older(printed, monkeypatch):
         history.append(_own(i))
     calls = []
 
-    def _page(kind, chat_id, limit, before=""):
+    def _page(kind, chat_id, limit, before="", roots_only=True):
+        assert roots_only is False  # your replies are listed too
         calls.append(before)
         end = len(history) if not before else next(k for k, m in enumerate(history) if m["id"] == before)
         start = max(0, end - limit)

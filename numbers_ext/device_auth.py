@@ -26,6 +26,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import webbrowser
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -614,6 +615,25 @@ def has_agent_token() -> bool:
         return (home_dir / "agent-token").read_text(encoding="utf-8").strip() != ""
     except Exception:
         return False
+
+
+def token_info() -> Optional[dict]:
+    """The Angel token this install uses, for /print-token: ``token``,
+    ``source`` (the env var, or the agent-token file's path) and, for the
+    file, ``saved_at`` (its modification time, UTC). None when there is no
+    token. Same precedence as has_agent_token."""
+    tok = os.environ.get("NUMBERS_AGENT_TOKEN", "").strip()
+    if tok:
+        return {"token": tok, "source": "NUMBERS_AGENT_TOKEN (environment)"}
+    try:
+        path = home.require_numbers_home() / "agent-token"
+        tok = path.read_text(encoding="utf-8").strip()
+        saved = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+    except Exception:
+        return None
+    if not tok:
+        return None
+    return {"token": tok, "source": str(path), "saved_at": saved}
 
 
 def print_no_token_notice(print_fn: Callable = print) -> None:

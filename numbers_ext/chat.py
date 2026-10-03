@@ -192,32 +192,42 @@ def group_read(chat_id: str) -> dict:
     return _request("GET", "/api/angel/v1/group-chat/" + urllib.parse.quote(chat_id, safe="")) or {}
 
 
-def group_page(chat_id: str, limit: int = RECENT_LIMIT, before: str = "") -> dict:
+def group_page(chat_id: str, limit: int = RECENT_LIMIT, before: str = "",
+               roots_only: bool = False) -> dict:
     """One page of a group chat: ``messages`` (oldest first), ``has_more`` and
     ``next_before``. ``before`` (a message id) pages back: the ``limit``
-    messages sent just before that one."""
+    messages sent just before that one. ``roots_only`` leaves replies out:
+    main messages only, each with its ``reply_count``."""
     query = {"chat_id": chat_id, "limit": limit}
     if before:
         query["before"] = before
+    if roots_only:
+        query["roots_only"] = "true"
     data = _request("GET", "/api/angel/v1/group-chat/messages", query=query) or {}
     data.setdefault("messages", [])
     return data
 
 
-def group_messages(chat_id: str, limit: int = RECENT_LIMIT, before: str = "") -> list[dict]:
+def group_messages(chat_id: str, limit: int = RECENT_LIMIT, before: str = "",
+                   roots_only: bool = False) -> list[dict]:
     """Recent messages, oldest first (see group_page)."""
-    return group_page(chat_id, limit, before).get("messages") or []
+    return group_page(chat_id, limit, before, roots_only).get("messages") or []
 
 
 # Paging back for /load-more and /history-chat asks for the server's largest page.
 HISTORY_PAGE = 50
+# /history-chat loads at most this many messages.
+HISTORY_CAP = 200
 
 
-def page(target_kind: str, target_id: str, limit: int = RECENT_LIMIT, before: str = "") -> dict:
-    """One page of the open DM ("dm") or group chat ("group")."""
+def page(target_kind: str, target_id: str, limit: int = RECENT_LIMIT, before: str = "",
+         roots_only: bool = True) -> dict:
+    """One page of the open DM ("dm") or group chat ("group"). A group's feed
+    is its main messages only (``roots_only``); replies are read with
+    /replies or /reply."""
     if target_kind == "dm":
         return dm_page(target_id, limit, before)
-    return group_page(target_id, limit, before)
+    return group_page(target_id, limit, before, roots_only)
 
 
 def group_send(chat_id: str, text: str, reply_to: str = "") -> dict:
@@ -229,10 +239,38 @@ def group_send(chat_id: str, text: str, reply_to: str = "") -> dict:
     return _request("POST", "/api/angel/v1/group-chat/send", body=body) or {}
 
 
-def group_replies(message_id: str) -> tuple[dict, list[dict]]:
-    """A message and its replies (oldest first)."""
-    data = _request("GET", "/api/angel/v1/group-chat/replies",
-                    query={"message_id": message_id}) or {}
+# Group replies nest 3 levels: main message (0) → head reply (1) → 2 → 3.
+# A depth-3 reply can't be replied to (the server refuses it too).
+GROUP_MAX_DEPTH = 3
+
+
+def can_reply_to(m: dict) -> bool:
+    return (m.get("depth") or 0) < GROUP_MAX_DEPTH
+
+
+def group_replies_page(message_id: str, limit: int = RECENT_LIMIT, before: str = "",
+                       nested: bool = False) -> dict:
+    """What is listed under one message, oldest first: a main message's head
+    replies, or every reply under a reply (at most 30 exist of each; older
+    ones are erased). ``nested`` adds, after a main message's head replies,
+    every reply under each of them (for the /replies tree). Returns
+    ``parent``, ``replies``, ``has_more`` and ``next_before``; the parent's
+    ``reply_count`` is its head replies (or, for a reply, all under it)."""
+    query = {"message_id": message_id, "limit": limit}
+    if before:
+        query["before"] = before
+    if nested:
+        query["nested"] = "true"
+    data = _request("GET", "/api/angel/v1/group-chat/replies", query=query) or {}
+    data.setdefault("parent", {})
+    data.setdefault("replies", [])
+    return data
+
+
+def group_replies(message_id: str, limit: int = RECENT_LIMIT) -> tuple[dict, list[dict]]:
+    """A message and the newest ``limit`` replies listed under it (see
+    group_replies_page), oldest first."""
+    data = group_replies_page(message_id, limit)
     return data.get("parent") or {}, data.get("replies") or []
 
 
@@ -460,12 +498,72 @@ def _text_or_media(m: dict) -> str:
     return "[media]"
 
 
-def message_label(m: dict) -> str:
+def message_label(m: dict, with_count: bool = False) -> str:
+    """``[15:20] text`` for pickers. ``with_count`` adds a second line
+    ``(replies N)`` when the message has replies."""
     text = _text_or_media(m).replace("\n", " ")
     if len(text) > 60:
         text = text[:59] + "…"
     clip = " 📎" if m.get("media") else ""
-    return f"[{_clock(m.get('created_at', ''))}] {text}{clip}"
+    label = f"[{_clock(m.get('created_at', ''))}] {text}{clip}"
+    if with_count and m.get("reply_count"):
+        label += "\n" + replies_line(m["reply_count"])
+    return label
+
+
+def replies_line(n: int) -> str:
+    """The ``(replies N)`` line under a main message."""
+    return f"    (replies {n})"
+
+
+def sub_replies_line(n: int) -> str:
+    """The count under a head reply: the replies nested under it. Worded
+    apart from ``(replies N)`` so it never reads as the main message's."""
+    return f"(sub-replies {n})"
+
+
+def _tree_text(m: dict) -> str:
+    who = "you" if m.get("mine") else "@" + (m.get("from") or "?")
+    edited = " (edited)" if m.get("edited") else ""
+    clip = " 📎" if m.get("media") else ""
+    text = _text_or_media(m).replace("\n", " ")
+    return f"[{_clock(m.get('created_at', ''))}] {who}: {text}{edited}{clip}"
+
+
+def reply_tree(parent: dict, replies: list[dict]) -> list[str]:
+    """The read-only /replies view: the original message on top, then its
+    replies as a tree. Head replies hang off the original message (``├─`` /
+    ``└─``); replies to a reply are indented under the one they answer. A
+    head reply with replies shows ``(sub-replies N)``."""
+    pid = parent.get("id")
+    ids = {r.get("id") for r in replies}
+    children: dict[str, list[dict]] = {}
+    for r in replies:
+        up = r.get("reply_to")
+        if up not in ids and up != pid:
+            up = pid  # its parent was erased or isn't listed: keep it visible
+        children.setdefault(up, []).append(r)
+    n = parent.get("reply_count") or len(children.get(pid, []))
+    out = ["  ╭─ 💬 Original message", f"  │ {_tree_text(parent)}"]
+    if n:
+        out.append(f"  │ (replies {n})")
+
+    def walk(node_id: str, prefix: str, top: bool) -> None:
+        kids = children.get(node_id, [])
+        for i, r in enumerate(kids):
+            last = i == len(kids) - 1
+            out.append(f"{prefix}{'└─' if last else '├─'} {_tree_text(r)}")
+            below = prefix + ("   " if last else "│  ")
+            count = r.get("reply_count") or 0
+            if top and count:
+                out.append(f"{below}{sub_replies_line(count)}")
+            walk(r.get("id"), below, False)
+
+    if children.get(pid):
+        walk(pid, "  ", True)
+    else:
+        out.append("  ╰─ No replies yet.")
+    return out
 
 
 def _clock(ts: str) -> str:
@@ -509,16 +607,20 @@ def format_history(msgs: list[dict], *, prev_ts: str = "") -> list[str]:
     return lines
 
 
-def format_message(m: dict) -> str:
+def format_message(m: dict, counts: bool = True) -> str:
     """One chat line. The server flags the caller's own messages ``mine``.
     A message with media gets a ``(contains media)`` badge and one link line
-    per attachment below it (custom emoji are dropped)."""
+    per attachment below it (custom emoji are dropped). A message with
+    replies gets a ``(replies N)`` line under it (``counts=False`` drops it,
+    e.g. inside the replies view)."""
     tag = "you" if m.get("mine") else "@" + (m.get("from") or "?")
     edited = " (edited)" if m.get("edited") else ""
     media = " (contains media)" if m.get("media") else ""
     mention = "  🔔 mentions you" if m.get("mentions_you") and not m.get("mine") else ""
     line = f"  [{_clock(m.get('created_at', ''))}] {tag}: {_text_or_media(m)}{edited}{media}{mention}"
     links = media_lines(m)
+    if counts and m.get("reply_count"):
+        links.append(replies_line(m["reply_count"]))
     if links:
         line = "\n".join([line, *links])
     preview = m.get("reply_preview")

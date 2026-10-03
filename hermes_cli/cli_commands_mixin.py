@@ -4265,6 +4265,30 @@ class CLICommandsMixin:
             _cprint(f"Token: {YELLOW}Not detected{RST}")
             _cprint("Connect one with: /connect <TOKEN>  (from Settings -> Agent Tokens)")
 
+    def _handle_print_token_command(self, command: str) -> None:
+        """Handle /print-token -- print this device's agent token with where
+        it is stored and when it was saved. Same lookup as /token (the
+        NUMBERS_AGENT_TOKEN env var first, then $NUMBERS_HOME/agent-token);
+        no network call."""
+        from datetime import datetime
+        from cli import _cprint
+        from numbers_ext.ansi import BOLD_GREEN, RST, YELLOW
+        from numbers_ext.device_auth import token_info
+
+        info = token_info()
+        if not info:
+            _cprint(f"Token: {YELLOW}Not detected{RST}")
+            _cprint("Connect one with: /connect <TOKEN>  (from Settings -> Agent Tokens)")
+            return
+        stamp = "%Y-%m-%d %H:%M:%S %Z"
+        _cprint(f"🔑 {BOLD_GREEN}Agent token{RST}")
+        _cprint(f"  Token:    {info['token']}")
+        _cprint(f"  Source:   {info['source']}")
+        if info.get("saved_at"):
+            _cprint(f"  Saved:    {info['saved_at'].astimezone().strftime(stamp)}")
+        _cprint(f"  Printed:  {datetime.now().astimezone().strftime(stamp)}")
+        _cprint(f"  {YELLOW}Keep it secret: anyone with it can act as you.{RST}")
+
     def _numbers_reload_mcp_after_connect(self) -> None:
         """Best-effort MCP reload right after a token is stored, so the angel
         tools become available in THIS session instead of requiring a
@@ -4564,8 +4588,8 @@ class CLICommandsMixin:
     # Two optional keys change where the next line goes (the prompt shows them):
     #   "pending": {"kind": "reply"|"edit", "message": m} -- the next line is a
     #       reply to m (/reply) or m's new text (/msg-edit), then it clears.
-    #   "thread": m -- the replies view (/replies): every line is a reply to m
-    #       until /exit-reply.
+    #   "thread": m -- the read-only replies view (/replies) of main message m,
+    #       until /exit-reply. Typing there sends nothing (use /reply).
     # Free text is never read with a prompt from a picker's worker thread:
     # cli.py's text prompt returns nothing off the main thread, which made
     # /reply print "Reply cancelled." before the user could type.
@@ -4714,7 +4738,7 @@ class CLICommandsMixin:
         elif pending:
             tag += " ↪ @" + (pending["message"].get("from") or "?")
         elif target.get("thread"):
-            tag += " ↪ thread @" + (target["thread"].get("from") or "?")
+            tag += " 📖 replies @" + (target["thread"].get("from") or "?")
         return [("class:prompt-working", f"[{tag}] ")]
 
     def _numbers_chat_intercept(self, text: str) -> bool:
@@ -4748,6 +4772,9 @@ class CLICommandsMixin:
             _cprint("  ✗ This conversation is read-only (not an associate, or unavailable). "
                     "Your message was not sent. /exit-chat to talk to the agent.")
             return True
+        if target.get("thread") and not target.get("pending"):
+            _cprint(self.REPLIES_READ_ONLY)
+            return True
         pending = target.pop("pending", None)
         if pending:
             self._invalidate(min_interval=0.0)  # the prompt tag changes back
@@ -4761,13 +4788,25 @@ class CLICommandsMixin:
         if target["kind"] == "dm":
             ok, msg = self._numbers_chat_call(chat.dm_send, target["id"], text)
         else:
-            parent = (pending or {}).get("message") or target.get("thread") or {}
+            parent = (pending or {}).get("message") or {}
+            if parent and not chat.can_reply_to(parent):
+                _cprint("  ✗ You can't reply to this reply (3 levels max). Your message was not sent.")
+                return True
             ok, msg = self._numbers_chat_call(chat.group_send, target["id"], text, parent.get("id", ""))
         if ok:
             if (msg or {}).get("id"):
                 target.setdefault("seen", set()).add(msg["id"])
                 target.setdefault("texts", {})[msg["id"]] = msg.get("text", text)
-            _cprint(chat.format_message(msg or {"mine": True, "text": text}))
+            if pending and target["kind"] == "group":
+                # The feed shows main messages only: confirm instead of
+                # printing the reply into it.
+                m = pending["message"]
+                who = "yourself" if m.get("mine") else "@" + (m.get("from") or "?")
+                _cprint(f"  ✓ Replied to {who}: {chat.message_label(m)} · /replies to read the thread")
+                if target.get("thread"):
+                    _cprint(f"    Still reading replies · /replies to refresh · {self.EXIT_REPLIES_HINT}")
+            else:
+                _cprint(chat.format_message(msg or {"mine": True, "text": text}))
         return True
 
     def _numbers_enter_chat(self, kind: str, chat_id: str, label: str, owner_id: str = "") -> None:
@@ -4784,18 +4823,21 @@ class CLICommandsMixin:
             _cprint("  To chat live (type to send), open the classic CLI: numbers --cli")
             return
         self._numbers_chat_target = target
-        _cprint(f"\n  💬 Opened {where}. Type to send · /load-more · /history-chat · /exit-chat")
+        _cprint(f"\n  💬 Opened {where}. Type to send · /print-chat · /load-more · /history-chat · /exit-chat")
         self._numbers_print_recent()
         if target.get("read_only"):
             _cprint("  (read-only: you can read this conversation but not reply)")
         self._numbers_start_chat_poll(target)
         self._invalidate(min_interval=0.0)
 
-    def _numbers_fetch_page(self, target: dict, limit: int = 0, before: str = "") -> dict:
-        """One page of ``target`` (see chat.page); also refreshes ``read_only``."""
+    def _numbers_fetch_page(self, target: dict, limit: int = 0, before: str = "",
+                            roots_only: bool = True) -> dict:
+        """One page of ``target`` (see chat.page); also refreshes ``read_only``.
+        A group's feed is its main messages only; ``roots_only=False`` brings
+        the replies too (/msg-edit and /msg-delete list your replies)."""
         from numbers_ext import chat
 
-        data = chat.page(target["kind"], target["id"], limit or chat.RECENT_LIMIT, before)
+        data = chat.page(target["kind"], target["id"], limit or chat.RECENT_LIMIT, before, roots_only)
         if target["kind"] == "dm" and not before:
             target["read_only"] = bool(data.get("read_only"))
         return data
@@ -4807,10 +4849,12 @@ class CLICommandsMixin:
         """Messages on screen are not "new" to the poller."""
         seen = target.setdefault("seen", set())
         texts = target.setdefault("texts", {})
+        counts = target.setdefault("counts", {})
         for m in msgs or []:
             if m.get("id"):
                 seen.add(m["id"])
                 texts[m["id"]] = m.get("text", "")
+                counts[m["id"]] = m.get("reply_count") or 0
 
     def _numbers_print_recent(self, target: "dict | None" = None) -> None:
         from cli import _cprint
@@ -4873,24 +4917,67 @@ class CLICommandsMixin:
                     return  # closed while the request was in flight
                 seen = target.setdefault("seen", set())
                 texts = target.setdefault("texts", {})
+                counts = target.setdefault("counts", {})
                 for m in msgs:
                     mid = m.get("id")
                     if not mid:
                         continue
                     text = m.get("text", "")
+                    n = m.get("reply_count") or 0
                     if mid in seen:
                         # Already shown: print it again only if someone edited it.
                         if texts.get(mid) != text:
                             texts[mid] = text
                             if not m.get("mine"):
                                 _cprint(chat.format_message(m))
+                        # The feed shows main messages only: a new reply is
+                        # announced in one line, and read with /replies.
+                        if n > counts.get(mid, 0):
+                            _cprint(self._numbers_reply_notice(m, n))
+                        counts[mid] = n
                         continue
                     seen.add(mid)
                     texts[mid] = text
+                    counts[mid] = n
                     if not m.get("mine"):
                         _cprint(chat.format_message(m))
+                thread = target.get("thread")
+                if thread and target["kind"] == "group":
+                    self._numbers_poll_thread(target, thread)
 
         threading.Thread(target=_loop, name="numbers-chat-poll", daemon=True).start()
+
+    @staticmethod
+    def _numbers_reply_notice(m: dict, n: int) -> str:
+        """One feed line for a new reply under main message ``m``."""
+        from numbers_ext import chat
+
+        who = "your message" if m.get("mine") else "@" + (m.get("from") or "?")
+        return f"  ↪ new reply to {who}: {chat.message_label(m)} (replies {n}) · /replies to read"
+
+    def _numbers_poll_thread(self, target: dict, thread: dict) -> None:
+        """In the replies view: one notice line per new reply from someone
+        else (printing it would break the tree drawn above)."""
+        from cli import _cprint
+        from numbers_ext import chat
+
+        try:
+            data = chat.group_replies_page(thread["id"], nested=True)
+        except Exception:
+            return  # the feed poll reports outages; the view keeps going
+        if target.get("thread") is not thread:
+            return  # left the view while the request was in flight
+        seen = target.setdefault("seen", set())
+        for r in (data or {}).get("replies") or []:
+            if r.get("id") and r["id"] not in seen:
+                seen.add(r["id"])
+                if not r.get("mine"):
+                    _cprint(f"  ↪ new reply from @{r.get('from') or '?'} · /replies to see it in place"
+                            f" · {self.EXIT_REPLIES_HINT}")
+
+    EXIT_REPLIES_HINT = "/exit-reply to go back to the chat"
+    REPLIES_READ_ONLY = ("  ✗ You're reading replies, nothing was sent. "
+                         "/reply to answer · /exit-reply to go back to the chat")
 
     def _numbers_require_group(self):
         from cli import _cprint
@@ -5411,7 +5498,7 @@ class CLICommandsMixin:
 
         mine, cursor, more = [], before, True
         for _ in range(self.OWN_SCAN_PAGES):
-            data = self._numbers_fetch_page(target, chat.HISTORY_PAGE, cursor) or {}
+            data = self._numbers_fetch_page(target, chat.HISTORY_PAGE, cursor, roots_only=False) or {}
             msgs = data.get("messages") or []
             for m in reversed(msgs):  # pages are oldest first; walk newest first
                 if m.get("id") and m.get("mine") and not m.get("deleted"):
@@ -5446,7 +5533,7 @@ class CLICommandsMixin:
             _cprint("  You have no older messages here." if before else "  You haven't sent any messages here.")
             return
         more = "__more__"
-        entries = [(f"you: {chat.message_label(m)}", m) for m in mine]
+        entries = [(f"you{' ↪ reply' if m.get('reply_to') else ''}: {chat.message_label(m)}", m) for m in mine]
         if has_more:
             entries.append(("⟳ Load 30 older…", more))
         hint = "Select one of your messages" + (" (older)" if before else "")
@@ -5480,6 +5567,7 @@ class CLICommandsMixin:
         ok, msgs = self._numbers_chat_call(self._numbers_fetch_recent, target)
         if not ok:
             return
+        # Group feeds are main messages only (see _numbers_fetch_page).
         picks = [m for m in msgs or [] if m.get("id") and (m.get("mine") or not only_mine)]
         if not picks:
             _cprint("  None of the recent messages here are yours." if only_mine
@@ -5490,7 +5578,7 @@ class CLICommandsMixin:
 
         def _label(m) -> str:
             who = "you" if m.get("mine") else "@" + (m.get("from") or "?")
-            return f"{who}: {chat.message_label(m)}"
+            return f"{who}: {chat.message_label(m, with_count=True)}"
 
         self._numbers_pick(title, hint, [(_label(m), m) for m in picks],
                            lambda m: on_select(target, m))
@@ -5535,22 +5623,78 @@ class CLICommandsMixin:
     # --- /reply, /replies, /exit-reply, /mentions: group chats only -----------
 
     def _handle_reply_command(self, command: str) -> None:
-        """Pick one of the 30 most recent messages; the next line typed is the reply."""
+        """Pick one of the 30 most recent main messages (each shows its reply
+        count). One with replies offers its replies: a main message's 30
+        latest head replies, then a head reply's 30 latest replies, so any of
+        them can be answered (3 levels at most). The next line typed is the
+        reply."""
         from cli import _cprint
         from numbers_ext import chat
 
         def _reply(target, m) -> None:
+            if not chat.can_reply_to(m):
+                _cprint("  ✗ You can't reply to this reply (3 levels max). Pick the one above it.")
+                return
             target["pending"] = {"kind": "reply", "message": m}
             who = "yourself" if m.get("mine") else "@" + (m.get("from") or "?")
             _cprint(f"  ↪ Replying to {who}: {chat.message_label(m)}")
             _cprint("    Type your reply and press Enter · /exit-reply cancels")
             self._invalidate(min_interval=0.0)
 
-        self._numbers_pick_message("↪ Reply to a message", _reply, group_only=True)
+        def _choose(target, m) -> None:
+            n = m.get("reply_count") or 0
+            if not n or not chat.can_reply_to(m):
+                _reply(target, m)
+                return
+            this = "message" if not m.get("depth") else "reply"
+            answer = self._numbers_choice(
+                title=f"Reply to this {this} or to one of its replies?",
+                detail=chat.message_label(m),
+                choices=[("this", f"Reply to this {this}", ""),
+                         ("replies", f"Open its {'replies' if not m.get('depth') else 'sub-replies'} ({n})",
+                          "pick a reply to answer"),
+                         ("cancel", "Cancel", "")])
+            if answer == "this":
+                _reply(target, m)
+            elif answer == "replies":
+                self._numbers_pick_reply(target, m, _choose)
+            else:
+                _cprint("  Reply cancelled.")
+
+        self._numbers_pick_message("↪ Reply to a message", _choose, group_only=True)
+
+    def _numbers_pick_reply(self, target: dict, m: dict, on_select) -> None:
+        """Picker over what is listed under ``m``, newest first: a main
+        message's head replies, or a head reply's replies (nested ones marked
+        ``↪ @who``). At most 30 exist of each."""
+        from cli import _cprint
+        from numbers_ext import chat
+
+        ok, data = self._numbers_chat_call(chat.group_replies_page, m["id"], chat.RECENT_LIMIT)
+        if not ok:
+            return
+        picks = [r for r in reversed((data or {}).get("replies") or []) if r.get("id")]
+        if not picks:
+            _cprint("  Its replies are gone. Replying to it instead.")
+            on_select(target, dict(m, reply_count=0))
+            return
+
+        def _label(r) -> str:
+            who = "you" if r.get("mine") else "@" + (r.get("from") or "?")
+            to = (r.get("reply_preview") or {}).get("from") if r.get("reply_to") != m["id"] else ""
+            end = "  (no further replies)" if not chat.can_reply_to(r) else ""
+            label = f"{who}{f' ↪ @{to}' if to else ''}: {chat.message_label(r)}{end}"
+            if not m.get("depth") and r.get("reply_count"):
+                label += "\n    " + chat.sub_replies_line(r["reply_count"])
+            return label
+
+        self._numbers_pick("↪ Reply to a reply", "Select a reply",
+                           [(_label(r), r) for r in picks], lambda r: on_select(target, r))
 
     def _handle_replies_command(self, command: str) -> None:
-        """Pick a message that has replies (type a username to narrow), then
-        view its thread; typing replies to it until /exit-reply."""
+        """Read replies: pick a main message that has replies, then see it
+        with all of its replies as a tree (head replies and the replies
+        under them). Read-only: /reply answers, /exit-reply leaves."""
         from cli import _cprint
         from numbers_ext import chat
 
@@ -5559,7 +5703,8 @@ class CLICommandsMixin:
         target = self._numbers_require_group()
         if not target:
             return
-        ok, msgs = self._numbers_chat_call(chat.group_messages, target["id"], chat.HISTORY_PAGE)
+        ok, msgs = self._numbers_chat_call(chat.group_messages, target["id"], chat.HISTORY_PAGE,
+                                           roots_only=True)
         if not ok:
             return
         parents = chat.reply_parents(msgs or [])
@@ -5571,30 +5716,29 @@ class CLICommandsMixin:
             who = "you" if m.get("mine") else "@" + (m.get("from") or "?")
             return f"{who}: {chat.message_label(m)}  ({chat.replies_label(n)})"
 
-        self._numbers_pick("💬 Replies", "Select a message to view its replies (type a username to narrow)",
+        self._numbers_pick("💬 Replies", "Select a message to view its replies",
                            [(_label(m, n), m) for m, n in parents],
                            lambda m: self._numbers_open_thread(target, m))
 
     def _numbers_open_thread(self, target: dict, m: dict) -> None:
+        """The read-only replies view of main message ``m``: the original
+        message, then every reply under it as a tree."""
         from cli import _cprint
         from numbers_ext import chat
 
-        ok, res = self._numbers_chat_call(chat.group_replies, m["id"])
+        ok, data = self._numbers_chat_call(chat.group_replies_page, m["id"], chat.RECENT_LIMIT, "", True)
         if not ok:
             return
-        parent, replies = res
-        parent = parent or m
-        _cprint(f"\n  💬 Replies to @{parent.get('from') or '?'}:")
-        _cprint(chat.format_message(parent))
-        for r in replies:
-            # The parent is printed above; don't repeat it on every reply.
-            _cprint("  " + chat.format_message(dict(r, reply_preview=None)))
-        if not replies:
-            _cprint("    No replies yet.")
+        parent = dict((data or {}).get("parent") or m)
+        parent.setdefault("depth", m.get("depth") or 0)
+        replies = (data or {}).get("replies") or []
+        _cprint(f"\n  💬 Replies in #{target['label']}")
+        for line in chat.reply_tree(parent, replies):
+            _cprint(line)
         self._numbers_mark_seen(target, replies)
         target.pop("pending", None)
         target["thread"] = parent
-        _cprint("  Type to reply to this message · /exit-reply to go back to the chat")
+        _cprint(f"  📖 Read-only · /reply to answer · {self.EXIT_REPLIES_HINT}")
         self._invalidate(min_interval=0.0)
 
     def _handle_exit_reply_command(self, command: str) -> None:
@@ -5644,6 +5788,21 @@ class CLICommandsMixin:
             return None
         return target
 
+    def _handle_print_chat_command(self, command: str) -> None:
+        """/print-chat: re-pull and print the 30 most recent messages of the
+        open DM or group chat (a group's main messages, with reply counts).
+        /load-more carries on from there."""
+        from cli import _cprint
+
+        if not self._numbers_require_signin():
+            return
+        target = self._numbers_require_chat()
+        if not target:
+            return
+        where = f"@{target['label']}" if target["kind"] == "dm" else f"#{target['label']}"
+        _cprint(f"  ── latest messages in {where} ──")
+        self._numbers_print_recent(target)
+
     def _handle_load_more_command(self, command: str) -> None:
         """The page of messages before the oldest one loaded so far.
 
@@ -5656,6 +5815,10 @@ class CLICommandsMixin:
             return
         target = self._numbers_require_chat()
         if not target:
+            return
+        if target.get("thread"):
+            _cprint("  Replies show in full (30 max), there is nothing older to load. "
+                    "/exit-reply to go back, then /load-more for older messages.")
             return
         oldest = target.get("oldest_id")
         if not oldest:
@@ -5686,7 +5849,7 @@ class CLICommandsMixin:
         for line in chat.format_history(msgs):
             _cprint(line)
 
-    HISTORY_CAP = 2000   # messages /history-chat loads at most
+    HISTORY_CAP = 200    # messages /history-chat loads at most (chat.HISTORY_CAP)
     HISTORY_SCREEN = 50  # lines printed between "more?" prompts
 
     def _handle_history_chat_command(self, command: str) -> None:
@@ -5709,7 +5872,7 @@ class CLICommandsMixin:
         elif arg.isdigit() and int(arg) > 0:
             want = min(int(arg), self.HISTORY_CAP)
         else:
-            _cprint("  Usage: /history-chat [N|all]   e.g. /history-chat 200")
+            _cprint(f"  Usage: /history-chat [N|all]   (at most {self.HISTORY_CAP}, e.g. /history-chat 100)")
             return
 
         where = f"@{target['label']}" if target["kind"] == "dm" else f"#{target['label']}"

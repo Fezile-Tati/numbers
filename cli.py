@@ -13150,6 +13150,8 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             self._handle_connect_command(cmd_original)
         elif canonical == "token":
             self._handle_token_command(cmd_original)
+        elif canonical == "print-token":
+            self._handle_print_token_command(cmd_original)
         elif canonical == "logout":
             self._handle_logout_command(cmd_original)
         elif canonical == "reset":
@@ -13182,6 +13184,8 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
             self._handle_clear_chat_command(cmd_original)
         elif canonical == "invites":
             self._handle_invites_command(cmd_original)
+        elif canonical == "print-chat":
+            self._handle_print_chat_command(cmd_original)
         elif canonical == "load-more":
             self._handle_load_more_command(cmd_original)
         elif canonical == "history-chat":
@@ -20744,7 +20748,8 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
                 choice = choices[idx]
                 style = 'class:clarify-selected' if idx == selected else 'class:clarify-choice'
                 prefix = '❯ ' if idx == selected else '  '
-                for wrapped in _wrap_panel_text(prefix + choice, inner_text_width, subsequent_indent='  '):
+                for _numbers_part in (prefix + choice).split("\n"):  # NUMBERS-CHAT picker-multiline
+                  for wrapped in _wrap_panel_text(_numbers_part, inner_text_width, subsequent_indent='  '):
                     _append_panel_line(lines, 'class:clarify-border', style, wrapped, box_width)
             _append_blank_panel_line(lines, 'class:clarify-border', box_width)
             lines.append(('class:clarify-border', '╰' + ('─' * box_width) + '╯\n'))

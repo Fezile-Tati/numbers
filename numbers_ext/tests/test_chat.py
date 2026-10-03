@@ -248,7 +248,9 @@ def test_group_messages_pages_back_with_before(echo):
 def test_group_replies_returns_parent_and_replies(echo):
     parent, replies = chat.group_replies("p1")
     assert parent == {"id": "p1"} and replies == [{"id": "r1", "reply_to": "p1"}]
-    assert echo.seen[-1][:2] == ("GET", "/api/angel/v1/group-chat/replies?message_id=p1")
+    assert echo.seen[-1][:2] == ("GET", "/api/angel/v1/group-chat/replies?message_id=p1&limit=30")  # the thread's 30 latest
+    chat.group_replies_page("p1", nested=True)  # the /replies tree
+    assert echo.seen[-1][:2] == ("GET", "/api/angel/v1/group-chat/replies?message_id=p1&limit=30&nested=true")
 
 
 def test_format_message_shows_reply_and_mention():
